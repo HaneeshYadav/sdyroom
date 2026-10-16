@@ -92,7 +92,7 @@ merged) plus 3 discovered during the audit (19–21). Each has a spec in
 | 09 | Moderation, reporting, blocking | [`PR-09`](prs/PR-09-moderation.md) | B | 07, chat | `0009` | Large | Merged — [PR #9](https://github.com/chanukyareddygopala07/sdyroom/pull/9) (`1be4633`) |
 | 10 | File & upload security hardening | [`PR-10`](prs/PR-10-resource-security.md) | B | merged main (05) | `0010` | Medium–Large | Merged — [PR #10](https://github.com/chanukyareddygopala07/sdyroom/pull/10) (`06cfea4`) |
 | 11 | Notifications | [`PR-11`](prs/PR-11-notifications.md) | A | 07, 09, 19, 20 | `0012` | Medium | In review — [PR #15](https://github.com/chanukyareddygopala07/sdyroom/pull/15) (`684a7bf`) |
-| 12 | AI document processing foundation | [`PR-12`](prs/PR-12-ai-document-foundation.md) | B | merged main (05) | `0013` | Large | Pending |
+| 12 | AI document processing foundation | [`PR-12`](prs/PR-12-ai-document-foundation.md) | B | merged main (05) | `0013` | Large | In review — [PR #17](https://github.com/chanukyareddygopala07/sdyroom/pull/17) (`51a8eb9`) |
 | 13 | Ask My Notes | [`PR-13`](prs/PR-13-ask-my-notes.md) | B | 12 | `0018` | Large | Pending |
 | 14 | AI quizzes & flashcards | [`PR-14`](prs/PR-14-ai-quiz-flashcards.md) | A | 12 | `0019` | Large | Pending |
 | 15 | AI personal study planner | [`PR-15`](prs/PR-15-ai-study-planner.md) | A | 14, 16 | `0015` | Large | Pending |

@@ -1,6 +1,8 @@
 # PR 12 — AI document foundation (provider abstraction, document ingestion, chunking)
 
-**Status:** specification only — no GitHub PR exists.
+**Status:** implemented on `feat/ai-document-foundation` —
+[PR #17](https://github.com/chanukyareddygopala07/sdyroom/pull/17) (`51a8eb9`),
+in review.
 **Owner:** Dev B (Cursor) · **Complexity:** Large · **Migration:** `0013_ai_documents.sql`
 **Depends on:** PR 10 (upload caps, sniffing, quota — ingestion must not become a DoS vector)
 **Gates:** PR 13, 14, 15, 16 (all AI work starts only after this lands)
