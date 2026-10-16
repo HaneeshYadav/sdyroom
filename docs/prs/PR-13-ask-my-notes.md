@@ -111,13 +111,12 @@ Implementation notes:
 
 ### Database work
 
-No new migration file (schema landed in `0012`): **`study_qa` is part of
-`0012_ai_documents.sql`** — PR 12's spec includes it and PR 14/16-style
-"one migration per PR" numbering keeps `0013` free for PR 14's
-`0013_quiz_artifacts.sql`. **If PR 12 has already merged without `study_qa`**,
-allocate the next unassigned number (the roadmap pre-assigns up to `0017`, so
-use `0018_qa_history.sql`) — **never** take `0013`, which belongs to PR 14.
-State the outcome in the PR description.
+**A new migration file is required.** PR 12 merged as `0013_ai_documents.sql`
+**without `study_qa`** (ingestion, chunks and the ledger only), so the
+fallback in the original planning applies: allocate the next unassigned
+number. The roadmap pre-assigns up to `0017` and PR 14's artifacts take
+`0019_quiz_artifacts.sql`, so use **`0018_qa_history.sql`** — never take
+`0013` (PR 12's) or `0014`–`0017`. State the outcome in the PR description.
 
 - `study_qa(id uuid pk, room_id uuid not null references rooms on delete
   cascade, conversation_id uuid not null, user_id uuid not null references
@@ -273,7 +272,7 @@ Positive guarantees:
 ### Files / modules likely affected
 
 ```
-supabase/migrations/0018_qa_history.sql                  (only if study_qa not in 0012; never 0013)
+supabase/migrations/0018_qa_history.sql                  (study_qa never shipped in 0013; never 0013–0017)
 app/(app)/rooms/[id]/ask/page.tsx                        (new) + loading/error
 app/api/rooms/[id]/ask/route.ts                          (new, stream)
 app/api/rooms/[id]/ask/history/route.ts                  (new)

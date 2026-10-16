@@ -45,6 +45,17 @@ export const MUTE_LIMIT = { max: 30, windowSeconds: 3600 } as const;
 /** Invitation creation — limit per room, per inviter. */
 export const INVITE_LIMIT = { max: 10, windowSeconds: 3600 } as const;
 
+/**
+ * Ingest step calls (`POST /api/ai/ingest/[resourceId]`). Each call runs one
+ * bounded step, and a full document needs a handful of calls — 30/60s gives
+ * a patient client room for a whole queue while stopping a script from
+ * re-driving extract loops against one resource.
+ */
+export const INGEST_LIMIT = { max: 30, windowSeconds: 60 } as const;
+
+/** Sweep calls — maintenance, not UI; one sweep already advances many rows. */
+export const SWEEP_LIMIT = { max: 6, windowSeconds: 60 } as const;
+
 export function uploadUserKey(userId: string): string {
   return `upload:user:${userId}`;
 }
@@ -117,4 +128,20 @@ export function muteSpec(roomId: string, userId: string): RateLimitSpec {
 
 export function inviteSpec(roomId: string, userId: string): RateLimitSpec {
   return { key: inviteKey(roomId, userId), ...INVITE_LIMIT };
+}
+
+export function ingestKey(userId: string): string {
+  return `ingest:user:${userId}`;
+}
+
+export function sweepKey(userId: string): string {
+  return `sweep:user:${userId}`;
+}
+
+export function ingestSpec(userId: string): RateLimitSpec {
+  return { key: ingestKey(userId), ...INGEST_LIMIT };
+}
+
+export function sweepSpec(userId: string): RateLimitSpec {
+  return { key: sweepKey(userId), ...SWEEP_LIMIT };
 }

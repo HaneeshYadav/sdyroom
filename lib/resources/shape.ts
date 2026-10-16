@@ -1,3 +1,8 @@
+import {
+  isIngestErrorCode,
+  INGEST_STATUSES,
+  type AiDocumentStatusInfo,
+} from "@/lib/ai/types";
 import { RESOURCE_CONTENT_TYPES, type StudyResource } from "./types";
 
 function envelopeOf(value: unknown): Record<string, unknown> | null {
@@ -14,6 +19,34 @@ function optionalText(value: unknown, field: string): string | null {
     throw new Error(`Unexpected resource payload: ${field} is not a string.`);
   }
   return value;
+}
+
+/**
+ * The `study_ai_documents(status, error_code)` embed — read defensively:
+ * `null` means "never indexed", and *any* shape we cannot recognise degrades
+ * to `null` rather than failing the whole list (same posture as
+ * `toNotificationView`): a status chip must never take down a page.
+ */
+function aiStatusOf(row: Record<string, unknown>): AiDocumentStatusInfo | null {
+  const raw = row.study_ai_documents;
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const status = (raw as Record<string, unknown>).status;
+  const errorCode = (raw as Record<string, unknown>).error_code;
+  if (!(INGEST_STATUSES as readonly unknown[]).includes(status)) {
+    return null;
+  }
+  if (errorCode !== null && !isIngestErrorCode(errorCode)) {
+    return null;
+  }
+  return {
+    status: status as AiDocumentStatusInfo["status"],
+    error_code: errorCode as AiDocumentStatusInfo["error_code"],
+  };
 }
 
 /**
@@ -69,5 +102,9 @@ export function toStudyResource(value: unknown): StudyResource {
     room_id: roomId,
     created_at: createdAt,
     updated_at: updatedAt,
+    ai: aiStatusOf(row),
+    // Absent → false (hides owner-only controls); a non-boolean also reads
+    // false: the fail-safe direction is "no owner powers", never "all of them".
+    is_owner: row.is_owner === true,
   };
 }

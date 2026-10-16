@@ -1,7 +1,9 @@
 # PR 12 — AI document foundation (provider abstraction, document ingestion, chunking)
 
-**Status:** specification only — no GitHub PR exists.
-**Owner:** Dev B (Cursor) · **Complexity:** Large · **Migration:** `0012_ai_documents.sql`
+**Status:** implemented on `feat/ai-document-foundation` —
+[PR #17](https://github.com/chanukyareddygopala07/sdyroom/pull/17) (`51a8eb9`),
+in review.
+**Owner:** Dev B (Cursor) · **Complexity:** Large · **Migration:** `0013_ai_documents.sql`
 **Depends on:** PR 10 (upload caps, sniffing, quota — ingestion must not become a DoS vector)
 **Gates:** PR 13, 14, 15, 16 (all AI work starts only after this lands)
 
@@ -117,7 +119,7 @@ with each step writing `study_ai_documents` status; a failed step writes
 
 ### Database work
 
-`supabase/migrations/0012_ai_documents.sql`:
+`supabase/migrations/0013_ai_documents.sql`:
 
 - `create extension if not exists vector;`
 - `study_ai_documents(resource_id uuid pk references study_resources on delete
@@ -313,7 +315,7 @@ never skips):
 ### Files / modules likely affected
 
 ```
-supabase/migrations/0012_ai_documents.sql                (new)
+supabase/migrations/0013_ai_documents.sql                (new)
 lib/ai/{provider,extract,chunk,ingest,retrieve,usage}.ts (new)
 lib/ai/providers/{openai,mock}.ts                        (new)
 app/api/ai/ingest/[resourceId]/route.ts                  (new)

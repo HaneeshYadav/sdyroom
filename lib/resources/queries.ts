@@ -78,7 +78,9 @@ export async function listResources(
 ): Promise<ListResourcesResult> {
   let query = client
     .from("study_resources")
-    .select(STUDY_RESOURCE_COLUMNS, { count: "exact" });
+    .select(`${STUDY_RESOURCE_COLUMNS}, study_ai_documents(status, error_code)`, {
+      count: "exact",
+    });
 
   if (input.scope === "personal") {
     query = query.is("room_id", null);
@@ -109,7 +111,19 @@ export async function listResources(
   }
 
   const rows = data ?? [];
-  const resources = rows.map((row) => toStudyResource(row));
+
+  // Owner signal: `owner_id` has no SELECT grant (0005), so the batched
+  // `resource_owner_ids` RPC answers "which of these are mine" in one call.
+  // A failed RPC degrades to no owner powers (buttons hidden, list intact) —
+  // logged, never silently succeeded.
+  const ownedIds = await fetchOwnedResourceIds(
+    client,
+    rows.map((row) => row.id),
+  );
+
+  const resources = rows.map((row) =>
+    toStudyResource({ ...row, is_owner: ownedIds.has(row.id) }),
+  );
   const total = count ?? input.offset + rows.length;
 
   return {
@@ -118,6 +132,30 @@ export async function listResources(
     offset: input.offset,
     has_more: input.offset + rows.length < total,
   };
+}
+
+/**
+ * Batched ownership answer for one page of ids. Returns an empty set on
+ * failure so a transient RPC problem can never mislabel *someone else's*
+ * file as yours (the direction that would expose owner-only controls).
+ */
+async function fetchOwnedResourceIds(
+  client: SupabaseClient,
+  resourceIds: string[],
+): Promise<Set<string>> {
+  if (resourceIds.length === 0) {
+    return new Set();
+  }
+  const { data, error } = await client.rpc("resource_owner_ids", {
+    p_resource_ids: resourceIds,
+  });
+  if (error) {
+    console.error("[resources] owner lookup failed:", error.message);
+    return new Set();
+  }
+  return new Set(
+    Array.isArray(data) ? data.filter((id): id is string => typeof id === "string") : [],
+  );
 }
 
 export type InsertResourceInput = {
@@ -187,7 +225,10 @@ export async function insertResource(
     throw new Error(`resource insert failed: ${error.message}`);
   }
 
-  return toStudyResource(data);
+  // A row this session just created is owned by this session: `owner_id` has
+  // no INSERT grant, so the column default (`auth.uid()`) decided the owner
+  // and no request field could have overridden it. No AI row exists yet.
+  return toStudyResource({ ...data, study_ai_documents: null, is_owner: true });
 }
 
 /**

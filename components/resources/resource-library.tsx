@@ -1,16 +1,18 @@
 "use client";
 
+import { AiStatusChip } from "@/components/ai/ai-status";
 import { ReportDialog } from "@/components/report-dialog";
 import { ResourceUploadForm } from "@/components/resources/resource-upload-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { AiDocumentStatusInfo, IngestStatus } from "@/lib/ai/types";
 import { formatBytes } from "@/lib/resources/files";
 import type { ResourceQuota } from "@/lib/resources/quota";
 import type { StudyResource } from "@/lib/resources/types";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type ResourceScope = { kind: "personal" } | { kind: "room"; roomId: string };
 
@@ -114,6 +116,14 @@ export function ResourceLibrary({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [reportId, setReportId] = useState<string | null>(null);
+  // Rows whose ingest chain this client is currently driving — row-local, so
+  // opening or deleting other files is never blocked by a background index.
+  const [indexingIds, setIndexingIds] = useState<ReadonlySet<string>>(new Set());
+  // Serialises ingest chains: an upload finishing while a mount-resume runs
+  // must queue, never interleave step calls (one step per request is the
+  // contract, and the rate limit is per user, not per chain).
+  const indexQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const mountResumedRef = useRef(false);
 
   /**
    * Loads a page of resources.
@@ -266,6 +276,155 @@ export function ResourceLibrary({
   const hasActiveFilters =
     applied.q !== "" || applied.subject !== "" || applied.chapter !== "";
 
+  const reflectAi = (resourceId: string, ai: AiDocumentStatusInfo | null) => {
+    setResources((current) =>
+      current.map((item) => (item.id === resourceId ? { ...item, ai } : item)),
+    );
+  };
+
+  /**
+   * Drives one resource's ingest state machine to a terminal state: repeated
+   * `POST /api/ai/ingest/[id]` with `{}` (`step: "auto"`), one bounded step
+   * per request — the resumable, no-queue model from PR 12. The chain stops
+   * on `ready`, on `failed` (a document outcome, answered with 200), on any
+   * error envelope (rate limit, quota, provider outage — the chip then shows
+   * the stored state on the next sync), and never loops unbounded.
+   */
+  const runIndexChain = async (resource: StudyResource) => {
+    setIndexingIds((current) => new Set(current).add(resource.id));
+    try {
+      for (let step = 0; step < 8; step += 1) {
+        const response = await fetch(`/api/ai/ingest/${resource.id}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+
+        if (response.status === 401) {
+          router.push("/auth/login");
+          return;
+        }
+
+        const body = (await response.json().catch(() => null)) as {
+          status?: IngestStatus;
+          error_code?: AiDocumentStatusInfo["error_code"];
+          error?: { code?: string; message?: string };
+        } | null;
+
+        if (!response.ok || !body?.status) {
+          // The response carries no state, but two failures have a state the
+          // row is known to hold (documented in the ingest contract): mark it
+          // so the chip shows the failure instead of a forever-"Indexing…".
+          if (response.status === 502) {
+            reflectAi(resource.id, {
+              status: "embedding",
+              error_code: "ai_provider_failed",
+            });
+          } else if (body?.error?.code === "ai_quota_exceeded") {
+            reflectAi(resource.id, {
+              status: "embedding",
+              error_code: "ai_quota_exceeded",
+            });
+          }
+          setActionError(
+            body?.error?.message ??
+              "Indexing could not continue. Please try again.",
+          );
+          return;
+        }
+
+        const status = body.status;
+        reflectAi(resource.id, { status, error_code: body.error_code ?? null });
+
+        if (status === "ready") {
+          setNotice(`“${resource.title}” is ready for AI.`);
+          router.refresh();
+          return;
+        }
+        if (status === "failed") {
+          setNotice(`“${resource.title}” could not be indexed.`);
+          router.refresh();
+          return;
+        }
+
+        // One step per request, then a beat before the next: the next call
+        // reads the state the previous one just wrote.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    } catch {
+      setActionError("Could not reach the server. Please try again.");
+    } finally {
+      setIndexingIds((current) => {
+        const next = new Set(current);
+        next.delete(resource.id);
+        return next;
+      });
+    }
+  };
+
+  /** Queues a chain; serialisation is what keeps step calls non-interleaved. */
+  const startIndexing = (resource: StudyResource) => {
+    indexQueueRef.current = indexQueueRef.current.then(() =>
+      runIndexChain(resource),
+    );
+  };
+
+  /**
+   * Best-effort resume when the view opens: one sweep call picks up rows
+   * stuck mid-flight (a tab closed halfway — the documented trade-off of the
+   * no-queue model), then this view's own non-terminal, error-free rows are
+   * driven to completion. Rows carrying an `error_code` are excluded on
+   * purpose: failures wait for an explicit "Index now", never auto-retry.
+   */
+  const resumeStuckIndexing = async () => {
+    try {
+      await fetch("/api/ai/ingest/sweep", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body:
+          scope.kind === "room"
+            ? JSON.stringify({ room_id: scope.roomId })
+            : "{}",
+      });
+    } catch {
+      // The sweep is a resume aid: if it cannot run, the chains below still
+      // drive this view's rows, and the next visit tries again.
+    }
+
+    const stuck = initialResources
+      .filter(
+        (resource) =>
+          resource.ai !== null &&
+          resource.ai.error_code === null &&
+          resource.ai.status !== "ready" &&
+          resource.ai.status !== "failed",
+      )
+      .slice(0, 4);
+    for (const resource of stuck) {
+      startIndexing(resource);
+    }
+  };
+
+  useEffect(() => {
+    if (mountResumedRef.current) return;
+    mountResumedRef.current = true;
+    void resumeStuckIndexing();
+    // Mount-only by design; the ref guards React's development double-invoke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Owner-only trigger: never started, waiting, failed, or error-stuck. */
+  const canIndexNow = (resource: StudyResource): boolean => {
+    if (!resource.is_owner || indexingIds.has(resource.id)) return false;
+    const ai = resource.ai;
+    if (ai === null || ai.status === "pending" || ai.status === "failed") {
+      return true;
+    }
+    // `embedding` + error keeps the row resumable by contract — exactly the
+    // state a provider outage or a spent daily quota leaves behind.
+    return ai.status === "embedding" && ai.error_code !== null;
+  };
+
   return (
     <section className="flex flex-col gap-5" aria-labelledby={`${idPrefix}-heading`}>
       <header className="flex flex-col gap-1">
@@ -288,6 +447,10 @@ export function ResourceLibrary({
         onUploaded={(resource) => {
           setNotice(`Uploaded “${resource.title}”.`);
           setResources((current) => [resource, ...current]);
+          // The upload is the moment the story promises progress ("once I
+          // upload a PDF … extraction runs"): kick the chain; the queue
+          // serialises it against any resume already running.
+          startIndexing(resource);
         }}
       />
 
@@ -422,6 +585,7 @@ export function ResourceLibrary({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Badge variant="secondary">{contentTypeLabel(resource.content_type)}</Badge>
                       <Badge variant="outline">{formatBytes(resource.size_bytes)}</Badge>
+                      <AiStatusChip ai={resource.ai} />
                       {resource.subject && (
                         <Badge variant="outline">{resource.subject}</Badge>
                       )}
@@ -435,6 +599,17 @@ export function ResourceLibrary({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    {canIndexNow(resource) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        aria-label={`Index ${resource.title} for AI`}
+                        onClick={() => startIndexing(resource)}
+                      >
+                        Index now
+                      </Button>
+                    )}
+
                     <Button
                       type="button"
                       size="sm"

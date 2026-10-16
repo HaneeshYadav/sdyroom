@@ -795,6 +795,173 @@ the rate limits their parent mutation routes already carry.
 
 ---
 
+## AI document foundation (PR 12)
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `POST` | `/api/ai/ingest/[resourceId]` | Advance one document's ingest state by exactly one step |
+| `POST` | `/api/ai/ingest/sweep` | Pick up stuck ingest rows and advance each by one `auto` step |
+| `GET` | `/api/ai/usage?room_id=` | Today's AI spend for one scope |
+
+All three are session-gated, and the database owns every gate: `ingest_begin`
+re-checks ownership/membership plus the size and type gates against
+`ai_resource_for_ingest` (0013), independently of the route. The routes own
+transport only — session → path id → rate limit → body → dispatch → the
+documented envelope. The execution model is deliberately client-driven (no
+queue, no daemon): each request advances **one bounded step** (≤ ~2 s), so a
+tab closed mid-ingest leaves a *resumable* row rather than a broken one, and
+`POST /api/ai/ingest/sweep` is the resume aid.
+
+### `POST /api/ai/ingest/[resourceId]`
+
+The body is optional and strict: an absent or empty body means `{}`, which
+means `{"step":"auto"}` — the resumable default the client loop and the sweep
+both use. An explicit step is `{ "step": "extract" | "chunk" | "embed" |
+"auto" }`. Malformed JSON is `400 invalid_json`; an unknown field (a forged
+`{ "force": true }`, say) is `400 validation` naming the key, never a field
+that is quietly ignored; a path id that is not a UUID is `400 validation`.
+
+**Dispatch matrix** (exactly as `lib/ai/ingest.ts` states it):
+
+| stored status | `auto` | explicit step |
+| --- | --- | --- |
+| `ready` / `failed` | noop | noop (`step_done` = requested step) |
+| `extracting` | extract | extract runs; chunk/embed noop (chunk/embed out-of-order → `step_done: null`) |
+| `chunking` | chunk | chunk runs; embed out-of-order → null; extract already done → `step_done: "extract"` |
+| `embedding` | embed | embed runs; extract/chunk report as done / out-of-order |
+
+A `pending` row dispatches exactly like `extracting` (`ingest_begin` creates a
+new row at `extracting`; `pending` stays a valid stored state for manually
+created rows). An explicit step that runs **out of order** is a noop answering
+`step_done: null` — nothing is claimed for work that has not happened — while
+a step the document is already past reports itself as done. Re-running a
+completed step is idempotent, and a `failed` row is never advanced by the
+sweep: it waits for an explicit retry (the "Index now" action, which
+`ingest_begin` resumes).
+
+**200 response** — `200 { "status", "step_done", "chunks?", "tokens?",
+"model?", "provider?", "error_code?" }`:
+
+| Field | Meaning |
+| --- | --- |
+| `status` | Stored status after the call: `pending` / `extracting` / `chunking` / `embedding` / `ready` / `failed` |
+| `step_done` | `extract` / `chunk` / `embed`, or `null` when nothing ran |
+| `chunks` / `tokens` / `model` | Present when the document is `ready` or when `step_done` is non-null: chunk count, embedding tokens, embedding model |
+| `provider` | Set only when this call actually embedded — the provider used (`openai` or `mock`) |
+| `error_code` | Present whenever the document carries a failure code (see the status model below) |
+
+**Document outcomes are `200` states, not HTTP errors.** `200 { "status":
+"failed", "step_done": null, "error_code": "no_text_layer" }` (a scanned PDF)
+is an honest answer about the document, not a transport failure. HTTP errors
+are the published codes:
+
+| Status | Code | Cause |
+| --- | --- | --- |
+| 400 | `validation` / `invalid_json` | Path id not a UUID, malformed body, or an unknown body field |
+| 401 | `unauthenticated` | No session (taken before the rate limit and the body) |
+| 403 | `not_resource_owner` / `not_member` / `ai_quota_exceeded` | Personal file you do not own / room file for a room you are not in / the scope's 50 MiB daily embed cap is spent — the route pre-checks the cap and rejects before any provider call, while `ingest_record_chunk` re-checks it inside the write as the race-safe authority |
+| 404 | `not_found` | Resource missing or not visible to the caller |
+| 413 | `too_large` | Over the 20 MiB ingest ceiling — re-checked against the stored row *and* against the actual downloaded object |
+| 415 | `unsupported_media_type` | Content type is not one of the indexable types (unreachable through the routes — `ingest_begin` gates types first; defense in depth) |
+| 429 | `rate_limited` | 30 ingest steps per 60 s (`Retry-After: 60`) |
+| 502 | `ai_provider_failed` | The provider call failed or returned an incomplete batch — the row is left at `embedding` + `error_code`, resumable, never silently `ready` |
+| 500 | `ingest_failed` | Unexpected RPC or state-machine failure; no SQL detail leaks |
+
+### `POST /api/ai/ingest/sweep`
+
+Optional, strict body: `{}`, `{ "room_id" }` or `{ "room_id", "limit" }`.
+`limit` is an integer 1–50 (default 10); an unknown field is `400
+validation`, malformed JSON `400 invalid_json`. A `room_id` is
+membership-proven **before any work runs** — a non-member gets the same
+`404 not_found` as a missing room (no existence oracle).
+
+A row is eligible when its `status` is not `ready` or `failed`, its
+`error_code` is `NULL`, and its `updated_at` is older than five minutes;
+eligible rows are advanced one `auto` step each, oldest first. Only rows the
+caller can already read appear (RLS does the scoping), and rows carrying an
+`error_code` are excluded on purpose — those wait for a human to press "Index
+now", not for a sweep. A row that errors mid-sweep never abandons the rest: it
+still appears in the answer with whatever status it now holds.
+
+`200 { "picked": n, "statuses": [{ "resource_id": "…", "status": "…" }] }` ·
+`400 validation` / `invalid_json` · `401 unauthenticated` ·
+`404 not_found` (a `room_id` the caller is not a member of) · `429
+rate_limited` (6 sweeps per 60 s, `Retry-After: 60`) · `500 ingest_failed`.
+
+### `GET /api/ai/usage?room_id=`
+
+The query is optional and strict: `room_id` must be a UUID when present
+(a malformed or unknown field is `400 validation`), is membership-proven
+(`404 not_found` for a non-member, identical to a missing room), and absent
+means the caller's personal scope.
+
+It reads the same `ai_usage_daily` RPC the embed cap enforces, so what this
+endpoint reports and what the database refuses can never drift: personal spend
+counts per user, room spend counts per room, both against the same **50 MiB
+per scope per day** budget.
+
+`200 { "used_bytes": n, "used_tokens": n, "limit_bytes": 52428800, "provider":
+"mock" | "openai" }` · `400 validation` · `401 unauthenticated` ·
+`404 not_found` · `500 usage_unavailable`.
+
+### Status model and error codes
+
+`pending → extracting → chunking → embedding → ready | failed` — the
+`study_ai_documents.status` CHECK from 0013, displayed on each resource row by
+`components/ai/ai-status.tsx`:
+
+| Stored state | Chip |
+| --- | --- |
+| no row / `pending` | `Not indexed` |
+| `extracting` | `Indexing… reading` |
+| `chunking` | `Indexing… chunking` |
+| `embedding` | `Indexing… embedding` |
+| `ready` | `Ready for AI` |
+| any state carrying an `error_code` | `Failed — <reason>` |
+
+`error_code` wins over `status` for display: an embed failure deliberately
+keeps the row at `embedding` (so it stays resumable) but renders as the
+failure it is. The closed list, with the chip's wording:
+
+| `error_code` | Meaning | Chip |
+| --- | --- | --- |
+| `no_text_layer` | PDF has no text layer (scanned/image-only — no OCR in scope) | `Failed — no text layer` |
+| `extract_failed` | Extraction threw for this file | `Failed — couldn't read the file` |
+| `extracted_too_large` | Extracted text over 16 MiB | `Failed — extracted text too large` |
+| `ingest_failed` | Unexpected pipeline or RPC failure | `Failed — indexing failed` |
+| `ai_quota_exceeded` | The scope's daily embed cap was reached | `Failed — daily AI limit reached` |
+| `ai_provider_failed` | The provider call failed | `Failed — AI service unavailable` |
+
+### Internal contract: `retrieve()` (not a route)
+
+`lib/ai/retrieve.ts` is **the single retrieval entry point PRs 13–16 build
+on**: embed the query with the configured provider → `match_document_chunks`
+(the only function allowed to read `document_chunks.embedding`) → a light
+rerank (score threshold + top-k window) → citation assembly.
+
+```ts
+retrieve(client, { roomId, query, topK?, threshold? })
+  → { chunks: Array<{ resourceId, chunkId, text, score, page?, heading,
+                      citation: { n, resourceId, title, href, page? } }>,
+      citations: Array<{ resourceId, title, href, pages?: number[] }> }
+```
+
+| Contract | Rule |
+| --- | --- |
+| `roomId` | `string \| null` — `null` scopes the search to the caller's personal documents |
+| `topK` | default 8, clamped to 1–50 (`RETRIEVAL_MAX_TOP_K`) |
+| `threshold` | default 0.2; below it chunks are dropped, so `{ chunks: [], citations: [] }` is an ordinary outcome (a refusal), not an error |
+| `citation.href` | always a route that exists today: `/resources` for a personal file, `/rooms/{roomId}` for a room file — never a storage URL |
+| `citation.n` | 1-based position in `citations`, so a prompt assembler can number sources without rebuilding the map; citations are de-duplicated per resource, best-first, each with its distinct `pages` |
+| Authorization | Room scope is enforced **inside** the 0013 `match_document_chunks` SECURITY DEFINER RPC: a non-member gets zero rows even with a perfectly crafted embedding, personal scope pins `owner_id = auth.uid()`, and only `ready` documents are ever matched |
+| Untrusted data | Retrieved chunk text is data, never instructions — callers keep it in the user/app part of a prompt, never in the system prompt (see `docs/SECURITY.md`) |
+| Failures | Provider errors propagate as `502 ai_provider_failed` (no mock fallback); an RPC outage surfaces to callers as `retrieval_failed` |
+
+Nothing here writes the usage ledger — embed spend is recorded by the ingest
+RPCs, and ask/quiz flows record their own (PR 13+).
+
+---
+
 ## Rate limits (PR 10)
 
 One mechanism serves every throttled route: the `rate_limits` table
@@ -833,6 +1000,8 @@ and proceeds only while the take returns `true`.
 | `POST /api/blocks` · `DELETE /api/blocks/[alias]` | `block:user:{userId}` | 30 / 3600 s |
 | `POST` / `DELETE` `…/members/[alias]/mute` | `mute:{roomId}:{userId}` | 30 / 3600 s |
 | `POST /api/rooms/[id]/invitations` | `invite:{roomId}:{userId}` | 10 / 3600 s |
+| `POST /api/ai/ingest/[resourceId]` (PR 12, one bounded step per call) | `ingest:user:{userId}` | 30 / 60 s |
+| `POST /api/ai/ingest/sweep` (PR 12, maintenance — one sweep advances many rows) | `sweep:user:{userId}` | 6 / 60 s |
 
 These numbers are part of the contract (`lib/rate-limit/keys.ts` is the
 implementation mirror); change both together. The per-user/per-target split on
@@ -845,7 +1014,7 @@ concentrate all of it on one room or library.
 
 | Concern | Status |
 | --- | --- |
-| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes and invitations. Session-gated pages and paginated reads are deliberately unthrottled; PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
+| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10 + PR 12): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes, invitations, and the AI ingest/sweep routes. Session-gated pages and paginated reads are deliberately unthrottled (including `GET /api/ai/usage`); PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
 | Malware scanning | **Not implemented and not claimed.** Only signature/UTF-8 validation runs. |
 | Metadata editing (`PATCH`) | Not exposed. The `UPDATE` grant and policy exist and are exercised by the integration suite so the column set is provably narrow; no UI or endpoint needs renaming yet. |
 | Public/permanent file URLs | Never. Only short-lived signed URLs. |
