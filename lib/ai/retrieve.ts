@@ -69,6 +69,12 @@ export type RetrievedChunk = {
 export type RetrievalResult = {
   chunks: RetrievedChunk[];
   citations: CitationRef[];
+  /**
+   * What this retrieval cost: the query embedding's tokens (honest
+   * accounting — the ask flow records them as `embed_tokens`; ingest spend
+   * stays in 0013's RPCs).
+   */
+  usage: { embedTokens: number };
 };
 
 export type RetrieveInput = {
@@ -77,6 +83,14 @@ export type RetrieveInput = {
   query: string;
   topK?: number;
   threshold?: number;
+  /**
+   * Optional narrowing: only chunks from these resources are kept. Applied
+   * *after* the RPC, which already scoped the rows to documents the caller
+   * may read — so a filter here can only shrink visibility, never widen it.
+   * `undefined` or `null` means "no narrowing"; an empty array matches
+   * nothing.
+   */
+  resourceIds?: string[] | null;
 };
 
 /**
@@ -154,7 +168,7 @@ export async function retrieve(
   const embedded = await provider.embed([input.query]);
   const vector = embedded.vectors[0];
   if (!vector) {
-    return { chunks: [], citations: [] };
+    return { chunks: [], citations: [], usage: { embedTokens: embedded.tokens } };
   }
 
   const { data, error } = await client.rpc("match_document_chunks", {
@@ -183,7 +197,12 @@ export async function retrieve(
   // The RPC already applied the threshold and top-k window; re-filtering here
   // keeps `retrieve()` honest on its own (unit tests, and any future caller
   // that relaxes an RPC parameter) without changing what the DB returned.
+  // The optional resource narrowing is applied first, so top-k still counts
+  // after the filter — asking about two of ten documents must not starve the
+  // window with chunks from the other eight.
+  const allowed = input.resourceIds ? new Set(input.resourceIds) : null;
   const kept = rows
+    .filter((row) => !allowed || allowed.has(row.resourceId))
     .filter((row) => row.score >= threshold)
     .sort((a, b) => a.score - b.score)
     .reverse()
@@ -228,5 +247,5 @@ export async function retrieve(
     };
   });
 
-  return { chunks, citations };
+  return { chunks, citations, usage: { embedTokens: embedded.tokens } };
 }

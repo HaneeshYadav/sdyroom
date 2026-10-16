@@ -507,10 +507,13 @@ Working log: what has landed, what each milestone still owes.
   embedding → ready | failed` state machine, chunking/embedding, the
   `POST /api/ai/ingest/[resourceId]` step route and `POST /api/ai/ingest/sweep`,
   status chips on the resource row) and retrieval (`lib/ai/retrieve.ts` over
-  the `match_document_chunks` RPC) have landed in code. The features
-  themselves still belong to the PRs that own them: **V** study materials →
-  RAG, **VI** "Ask my notes" (PR 13), and **VII** AI quiz/flashcards (PR 14)
-  and the AI planner (PR 15) — each consumes `retrieve()` and ships its own
-  UI, endpoints and tests. With no provider key configured the whole pipeline
-  runs on the mock provider, so every milestone above can be developed and
-  tested without secrets.
+  the `match_document_chunks` RPC) have landed in code. **VI "Ask my notes"
+  has shipped (PR 13)**: room-scoped questions over indexed documents with
+  real citations, an append-only per-user history (`0018_qa_history.sql`,
+  `record_qa`), a per-user daily chat-token cap, injection-hardened prompts
+  and a `/rooms/[id]/ask` page. The features that remain belong to the PRs
+  that own them: **V** study materials → RAG, and **VII** AI quiz/flashcards
+  (PR 14) and the AI planner (PR 15) — each consumes `retrieve()` and ships
+  its own UI, endpoints and tests. With no provider key configured the whole
+  pipeline runs on the mock provider, so every milestone above can be
+  developed and tested without secrets.

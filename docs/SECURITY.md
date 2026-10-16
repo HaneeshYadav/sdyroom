@@ -50,7 +50,7 @@ file carries the model behind them.
 | Provider key exfiltration | Reading `AI_API_KEY` from the client bundle, a request/response payload or a log line | `lib/ai/config.ts` is server-side only: the variable is never read as `NEXT_PUBLIC_*`, never serialised, never logged and never echoed in an error or response — it travels only in the `Authorization` header of outbound server-to-server calls. `AI_PROVIDER=auto` resolves to `mock` only when no key is set; a configured provider that fails answers `502 ai_provider_failed` and never falls back to mock (`lib/ai/providers/openai.ts`) |
 | AI spend abuse | A tight loop driving `POST /api/ai/ingest/[resourceId]` to burn provider budget | One bounded step per request (≤ ~2 s), fixed windows `ingest:user:{id}` 30/60 s and `sweep:user:{id}` 6/60 s, PR 10's 20 MiB ceiling re-checked inside `ai_resource_for_ingest`, a 16 MiB extracted-text cap, and a 50 MiB/day embedded-bytes cap per scope — pre-checked in the route so no provider call is made at all when the cap is spent, and enforced again inside `ingest_record_chunk` as the race-safe authority. Over-cap is `403 ai_quota_exceeded` |
 | Chunk-table poisoning / cross-scope retrieval | Direct `INSERT`/`UPDATE` on `document_chunks`, or `match_document_chunks` called with a crafted embedding for a room the caller is not in | No `INSERT`/`UPDATE`/`DELETE` grant on `study_ai_documents`, `document_chunks` or `ai_usage` (and no `SELECT` grant at all on `document_chunks.embedding`) — every write travels through 0013's SECURITY DEFINER RPCs. `match_document_chunks` is SECURITY DEFINER with the guard inside: a non-member gets zero rows, personal scope pins `owner_id = auth.uid()`, and only `ready` documents match |
-| Prompt injection through an uploaded file (PRs 13–16) | A document containing "ignore previous instructions…" that later surfaces in an AI answer | The posture is fixed now and enforced by the consuming PRs: retrieved chunk text is **untrusted data** — wrapped as delimited data in a prompt, never concatenated into the system prompt, never executed as instructions. Citations link to app routes (`/resources`, `/rooms/{id}`), never to storage URLs. See the AI section below |
+| Prompt injection through an uploaded file (PRs 13–16) | A document containing "ignore previous instructions…" that later surfaces in an AI answer | Enforced by PR 13: retrieved chunk text is wrapped as delimited `<source>` data in the **user** message (`lib/ai/prompts/ask.ts`), never in the system prompt, and a `</source>` sequence inside the text is escaped so it cannot close the tag early; the system prompt says explicitly that source text is not instructions. Answer post-processing strips `[n]` markers that do not point at a real citation and builds the `Sources:` line from the retrieval pipeline's citations only. Citations link to app routes (`/resources`, `/rooms/{id}`), never to storage URLs |
 
 ## Room presence: what it discloses
 
@@ -247,15 +247,28 @@ each is the kind of thing that silently rots:
   so a direct PostgREST write dies on `42501` before any policy, and
   `document_chunks.embedding` has no `SELECT` grant at all — raw vectors are
   never exported; retrieval returns scores instead.
-- **Retrieved text is data, never instructions (the posture for PRs 13–16).**
+- **Retrieved text is data, never instructions (enforced by PR 13).**
   Chunk text originates from user uploads and is therefore untrusted input:
-  callers must wrap it as delimited *data* in the user/app part of a prompt,
-  never concatenate it into the system prompt, and never let it be executed as
-  instructions. Citations are assembled from app routes (`/resources` for
-  personal files, `/rooms/{roomId}` for room files) — never storage URLs — so
-  a poisoned document cannot smuggle a link either. This is written down now,
-  before any completion feature lands; the consuming PRs own the enforcement
-  and its tests.
+  `lib/ai/prompts/ask.ts` wraps it as delimited `<source>` *data* in the
+  user message (a `</source>` sequence inside the text is escaped so it cannot
+  close the tag early), never concatenates it into the system prompt, and the
+  system prompt states that source text is not instructions. Citations are
+  assembled from app routes (`/resources` for personal files,
+  `/rooms/{roomId}` for room files) — never storage URLs — so a poisoned
+  document cannot smuggle a link either, and `lib/ai/answer.ts` strips any
+  `[n]` marker that does not point at a real citation before the answer is
+  stored. This posture was written down in PR 12 and is now enforced, with
+  unit and integration tests, by the ask pipeline.
+- **Chat spend is capped, and history is append-only (PR 13).** Every
+  completed answer records its `chat_tokens` (plus the query embedding's
+  `embed_tokens`) through `record_qa` — the only insert path into
+  `study_qa` (0018). Application roles hold **no** `INSERT`/`UPDATE`/`DELETE`
+  grant on the table, `record_qa` pins `user_id = auth.uid()` and re-checks
+  room membership, and the per-user daily chat-token cap (100 000) is
+  enforced twice: the route pre-checks today's own-row sum (403 before any
+  provider call) and `record_qa` re-checks the same set inside the write as
+  the race-safe authority. `SELECT` is column-scoped to the history
+  contract's columns, so token accounting never leaves the database.
 
 ## Study resources: where the rules live
 

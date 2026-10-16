@@ -940,10 +940,11 @@ on**: embed the query with the configured provider → `match_document_chunks`
 rerank (score threshold + top-k window) → citation assembly.
 
 ```ts
-retrieve(client, { roomId, query, topK?, threshold? })
+retrieve(client, { roomId, query, topK?, threshold?, resourceIds? })
   → { chunks: Array<{ resourceId, chunkId, text, score, page?, heading,
                       citation: { n, resourceId, title, href, page? } }>,
-      citations: Array<{ resourceId, title, href, pages?: number[] }> }
+      citations: Array<{ resourceId, title, href, pages?: number[] }>,
+      usage: { embedTokens: number } }
 ```
 
 | Contract | Rule |
@@ -951,6 +952,8 @@ retrieve(client, { roomId, query, topK?, threshold? })
 | `roomId` | `string \| null` — `null` scopes the search to the caller's personal documents |
 | `topK` | default 8, clamped to 1–50 (`RETRIEVAL_MAX_TOP_K`) |
 | `threshold` | default 0.2; below it chunks are dropped, so `{ chunks: [], citations: [] }` is an ordinary outcome (a refusal), not an error |
+| `resourceIds` | optional narrowing applied **after** the RPC (which already scoped rows to what the caller may read — a filter can only shrink visibility): `undefined`/`null` means no narrowing, an empty array matches nothing, and the top-k window is counted after the filter |
+| `usage.embedTokens` | the query embedding's token spend, so ask flows can ledger retrieval honestly (`embed_tokens`) |
 | `citation.href` | always a route that exists today: `/resources` for a personal file, `/rooms/{roomId}` for a room file — never a storage URL |
 | `citation.n` | 1-based position in `citations`, so a prompt assembler can number sources without rebuilding the map; citations are de-duplicated per resource, best-first, each with its distinct `pages` |
 | Authorization | Room scope is enforced **inside** the 0013 `match_document_chunks` SECURITY DEFINER RPC: a non-member gets zero rows even with a perfectly crafted embedding, personal scope pins `owner_id = auth.uid()`, and only `ready` documents are ever matched |
@@ -959,6 +962,104 @@ retrieve(client, { roomId, query, topK?, threshold? })
 
 Nothing here writes the usage ledger — embed spend is recorded by the ingest
 RPCs, and ask/quiz flows record their own (PR 13+).
+
+---
+
+## Ask my notes (PR 13)
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `POST` | `/api/rooms/[id]/ask` | One room-scoped RAG question; the answer arrives as an NDJSON stream |
+| `GET` | `/api/rooms/[id]/ask/history?limit=&cursor=` | The caller's own Q/A history for the room, newest first |
+| `GET` | `/api/rooms/[id]/ask/documents` | The room documents the scope selector shows (`resource_id`, `title`, `status`, `chunks`) |
+
+All three are session-gated and membership-proven (a non-member gets the same
+`404` as a missing room — no existence oracle). The pipeline is
+`runAsk` (`lib/ai/ask.ts`): indexed-documents gate → double-submit replay →
+chat-quota pre-check → `retrieve()` (optionally narrowed by `resource_ids`) →
+one completion over the kept excerpts only → answer finalization →
+`record_qa`, the history table's **only** insert path.
+
+### `POST /api/rooms/[id]/ask`
+
+Strict body: `{ "question", "resource_ids"?, "conversation_id"? }` — the
+question is trimmed to 1–2000 characters; `resource_ids` is at most 25 UUIDs
+and only narrows what RLS already allows; `conversation_id` is an optional
+client-generated UUID grouping turns (the server invents one when absent and
+always echoes it in `done`). Unknown fields are `400 validation`, malformed
+JSON `400 invalid_json`.
+
+**200** is an `application/x-ndjson` stream of exactly this shape:
+
+```
+{"type":"citations","citations":[{"n":1,"resource_id":"…","title":"…","href":"/rooms/…","pages":[3]}]}
+{"type":"delta","text":"…"}
+{"type":"done","qa_id":"…","conversation_id":"…","usage":{"prompt_tokens":n,"completion_tokens":n,"retrieval_tokens":n,"retrieved_chunks":n,"chat_used_today":n,"chat_limit":100000}}
+```
+
+`citations` is the retrieval pipeline's citations (renumbered after the
+context budget keeps its excerpts); the single `delta` carries the finalized
+answer — orphan `[n]` markers stripped, an application-built `Sources:` line
+appended from those same citations; `done` names the persisted row. The
+provider seam is one-shot today, so the stream is citations → one delta →
+done, with the contract already shaped for future real streams. Every failure
+is decided **before** the first event, so a non-2xx answer is a plain JSON
+envelope; a connection that drops mid-stream is finished client-side from the
+missing `done` (and a server-side mid-stream failure, should one ever open,
+arrives as a terminal `{"type":"error","code"}` line).
+
+**Double-submit:** the same question in the same conversation within 60 s
+replays the existing row (same `qa_id`, no second provider call, no second
+ledger write) — enforced inside `record_qa`, so two racing submits cannot
+double-spend either.
+
+**Refusal path:** when nothing clears the retrieval threshold, the answer is
+the canned honest sentence ("I could not find that in your documents."), the
+completion is never called, citations are `[]`, and the row still records the
+query embedding's tokens with `retrieved_chunks: 0`.
+
+| Status | Code | Cause |
+| --- | --- | --- |
+| 400 | `validation` / `invalid_json` | Bad room id, bad body field, unknown field, or malformed JSON |
+| 401 | `unauthenticated` | No session (taken before the rate limit and the body) |
+| 403 | `ai_quota_exceeded` | The per-user daily chat-token cap (100 000) is spent — the route pre-checks today's own-row `chat_tokens` sum and rejects before any provider call; `record_qa` re-checks the same set inside the write as the race-safe authority |
+| 404 | `not_found` | Room missing or the caller is not a member |
+| 409 | `no_documents_indexed` | No `ready` document in the room (or in the caller's `resource_ids` selection) |
+| 429 | `rate_limited` | 20 asks per 60 s per room+user (`Retry-After: 60`) |
+| 502 | `ai_provider_failed` | Provider or retrieval failure — no mock fallback when a real provider is configured |
+| 500 | `ask_failed` | Unexpected failure; no SQL detail leaks |
+
+### `GET /api/rooms/[id]/ask/history`
+
+`?limit=20&cursor=<opaque>` — the shared opaque `created_at|id` cursor; the
+limit is 1–50. Only the caller's own rows come back (0018 policy: own rows
+**and** room membership, so history disappears with the seat). Token
+accounting never leaves the database: the column-scoped SELECT (0018) grants
+only `id, room_id, conversation_id, user_id, question, answer, citations,
+created_at` — a wildcard SELECT is `insufficient_privilege`.
+
+`200 { "items": [{ "id", "question", "answer", "citations",
+"conversation_id", "created_at" }], "next_cursor": string | null }` ·
+`400 validation` (bad limit or cursor) · `401` · `404` ·
+`500 conversation_history_failed`.
+
+### `GET /api/rooms/[id]/ask/documents`
+
+`200 { "documents": [{ "resource_id", "title", "status", "chunks" }] }` —
+every room document RLS lets the member see, statuses included so the UI can
+explain a `pending`/`processing`/`failed` file instead of hiding it; only
+`ready` rows are askable. `401` · `404` · `500 documents_failed`.
+
+### Internal contract: `record_qa` (0018)
+
+The table's only insert path (SECURITY DEFINER, execute granted to
+`authenticated` only): pins `user_id = auth.uid()`, re-checks membership,
+validates the row, deduplicates the 60-second double-submit window, enforces
+the daily chat cap, writes the `chat_tokens` (+ optional retrieval
+`embed_tokens`) ledger in the same transaction, and returns
+`{ qa_id, conversation_id, created_at, deduped, chat_used_today,
+chat_limit }`. Application roles hold no `INSERT`/`UPDATE`/`DELETE` grant on
+`study_qa` at all.
 
 ---
 
@@ -1002,6 +1103,7 @@ and proceeds only while the take returns `true`.
 | `POST /api/rooms/[id]/invitations` | `invite:{roomId}:{userId}` | 10 / 3600 s |
 | `POST /api/ai/ingest/[resourceId]` (PR 12, one bounded step per call) | `ingest:user:{userId}` | 30 / 60 s |
 | `POST /api/ai/ingest/sweep` (PR 12, maintenance — one sweep advances many rows) | `sweep:user:{userId}` | 6 / 60 s |
+| `POST /api/rooms/[id]/ask` (PR 13, one full RAG pass per question) | `ask:{roomId}:{userId}` | 20 / 60 s |
 
 These numbers are part of the contract (`lib/rate-limit/keys.ts` is the
 implementation mirror); change both together. The per-user/per-target split on

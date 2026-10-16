@@ -7,6 +7,7 @@ import { RoomInvitePanel } from "@/components/room-invite-panel";
 import { RoomRoster } from "@/components/room-roster";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { countReadyDocuments } from "@/lib/ai/ask";
 import { listMessages } from "@/lib/chat/queries";
 import { FocusSessionError } from "@/lib/focus/sessions";
 import { getFocusWorkspace } from "@/lib/focus/workspace";
@@ -83,32 +84,37 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
 
   // Membership is already proven by the workspace read above, so the library
   // query here is simply RLS applying room membership to the same viewer.
-  const [goals, { messages }, resources, quota] = await Promise.all([
-    listGoals(supabase, parsedRoomId.data),
-    listMessages(supabase, {
-      roomId: parsedRoomId.data,
-      viewerId,
-      limit: MESSAGE_PAGE_SIZE_DEFAULT,
-    }),
-    listResources(supabase, {
-      viewerId,
-      scope: "room",
-      roomId: parsedRoomId.data,
-      q: "",
-      subject: null,
-      chapter: null,
-      limit: RESOURCE_PAGE_SIZE_DEFAULT,
-      offset: 0,
-    }),
-    // Display-only, same reasoning as the personal library page: a quota
-    // read failure hides the usage line, it never fails the workspace.
-    fetchResourceQuota(supabase, parsedRoomId.data).catch(
-      (error: unknown) => {
-        console.error("[rooms/page] quota fetch failed:", error);
-        return null;
-      },
-    ),
-  ]);
+  const [goals, { messages }, resources, quota, readyDocuments] =
+    await Promise.all([
+      listGoals(supabase, parsedRoomId.data),
+      listMessages(supabase, {
+        roomId: parsedRoomId.data,
+        viewerId,
+        limit: MESSAGE_PAGE_SIZE_DEFAULT,
+      }),
+      listResources(supabase, {
+        viewerId,
+        scope: "room",
+        roomId: parsedRoomId.data,
+        q: "",
+        subject: null,
+        chapter: null,
+        limit: RESOURCE_PAGE_SIZE_DEFAULT,
+        offset: 0,
+      }),
+      // Display-only, same reasoning as the personal library page: a quota
+      // read failure hides the usage line, it never fails the workspace.
+      fetchResourceQuota(supabase, parsedRoomId.data).catch(
+        (error: unknown) => {
+          console.error("[rooms/page] quota fetch failed:", error);
+          return null;
+        },
+      ),
+      // Gates the "Ask my notes" entry link: the page itself re-proves
+      // membership and the API re-checks readiness, so this count is only
+      // ever used to disable-and-explain, never to authorize.
+      countReadyDocuments(supabase, parsedRoomId.data),
+    ]);
   const { room, member_count, viewer_role } = workspace;
 
   // Membership is already proven by the workspace read above. The roster
@@ -198,6 +204,25 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
             {viewer_role === "owner" && (
               <Button asChild size="sm" variant="outline">
                 <Link href={`/rooms/${room.id}/settings`}>Room settings</Link>
+              </Button>
+            )}
+            {/* Disabled-and-explained, never hidden: with no indexed
+                document the ask page would only show an empty state, and a
+                member who cannot see why the button is missing would have
+                nowhere to look. */}
+            {readyDocuments > 0 ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/rooms/${room.id}/ask`}>Ask my notes</Link>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled
+                title="Index at least one document in Resources first."
+                aria-label="Ask my notes (unavailable — index a document first)"
+              >
+                Ask my notes
               </Button>
             )}
           </div>

@@ -202,6 +202,13 @@ function `study_ai_documents_touch()` are executable by **no** application
 role at all (only this migration's definer functions and the trigger call
 them).
 
+`study_qa` (`0018`) closes the same way: revoke-first, column-scoped
+`SELECT` for `authenticated` (id, room, conversation, user, question, answer,
+citations, created_at — **no token or model columns**, so a wildcard `SELECT`
+fails on privilege grounds), zero write grants for any role, and execute on
+`record_qa` revoked from `public`/`anon` and granted only to `authenticated`.
+The table's single policy (below) is the second layer.
+
 **No `UPDATE` or `DELETE` grant on `rooms` / `room_members` — and since `0008`
 that is a deliberate design, not an undeveloped flow.** Room edits and deletion go
 exclusively through the `update_room` / `delete_room` SECURITY DEFINER RPCs
@@ -281,6 +288,7 @@ rows.
 | `notifications` | `notifications_select_own` / `update_own` / `delete_own` (`0012`) | `user_id = auth.uid()` on all three verbs — a student lists, marks read and deletes only their own rows. There is deliberately no insert policy (and no insert grant), so a hypothetical widened grant would still produce nothing: the same two-layer shape as `rate_limits`, minus the RPC-only reads |
 | `study_ai_documents`, `document_chunks` | `study_ai_documents_select_visible` / `document_chunks_select_visible` (`0013`) | the same audience as `study_resources`: your own files, plus files shared into rooms you are a member of right now — `is_resource_owner(...)` (a definer helper, because `study_resources.owner_id` carries no `SELECT` grant) OR a current `room_members` row. No insert/update/delete policy exists **and** no matching grant does either — two independent layers, so the state machine and the chunk table are RPC-only |
 | `ai_usage` | `ai_usage_select_own` (`0013`) | `user_id = auth.uid()` — a student reads only their own ledger rows; every insert travels through `ingest_record_chunk` |
+| `study_qa` | `study_qa_select_own` (`0018`) | own rows **and** a current `room_members` row for the row's room — a student reads only their own history, and it disappears the moment the seat does. No insert/update/delete policy exists **and** no matching grant does either: the table is RPC-only |
 | `realtime.messages` | `room_presence_select_member` / `room_presence_insert_member` (`0006`) | the whole of the private-channel gate for `room-presence-{uuid}` topics: `authenticated` only, extension must be `broadcast`/`presence`, and the uuid in the topic must match a current `room_members` row for `auth.uid()` — so a non-member (or an anonymous client) cannot join, cannot confirm a private room exists, and cannot read another room's roster. Realtime's authorization probes run as the caller inside a transaction that rolls back, so nothing is ever written |
 
 Storage objects have their own four policies (next section); they are not listed
@@ -539,7 +547,7 @@ Rate windows (published in `docs/API_CONTRACTS.md`, implemented in
 `lib/rate-limit/keys.ts`): upload 20/min per user and 10/min per target,
 delete 30/min, signed URL 120/min, sweep 5/min; reports 20/hour, blocks and
 mutes 30/hour, invitations 10/hour; AI ingest steps 30/min and AI ingest
-sweeps 6/min (`0013`/PR 12). The limiter **fails open** by design
+sweeps 6/min (`0013`/PR 12); asks 20/min per room+user (`0018`/PR 13). The limiter **fails open** by design
 (`lib/rate-limit/check.ts`): only an explicit `false` refuses, and a database
 hiccup is logged rather than turned into an outage.
 
@@ -601,7 +609,8 @@ select vector_dims(embedding)          -- after at least one ingest
 | --- | --- |
 | `study_ai_documents` | One row per ingested resource (PK = `resource_id`, `ON DELETE CASCADE`). `status` CHECK `pending/extracting/chunking/embedding/ready/failed`; `error_code` CHECK over `no_text_layer`/`extract_failed`/`extracted_too_large`/`ingest_failed`/`ai_quota_exceeded`/`ai_provider_failed`; transient `extracted_text`/`pending_chunks` carry work between one-step-per-request calls and are cleared at `ready`. Select-only for `authenticated` (visible-row policy), no write grant or policy — the `updated_at` trigger doubles as the sweep's stuck-row clock. |
 | `document_chunks` | Ordered chunk text + `vector(1536)` embedding, `unique (resource_id, ordinal)` and a deterministic `chunk_hash = sha256(resource_id ‖ ordinal ‖ text)` so re-runs are idempotent. Written only by the ingest RPCs; `SELECT` is column-scoped and **excludes `embedding`** — vectors never leave over PostgREST. HNSW index above. |
-| `ai_usage` | Per-call ledger (`embed_bytes`/`embed_tokens`, later `chat_tokens`); daily caps are `sum`s inside the RPCs. Own-row `SELECT`; inserts only through `ingest_record_chunk`. |
+| `ai_usage` | Per-call ledger (`embed_bytes`/`embed_tokens`, later `chat_tokens`); daily caps are `sum`s inside the RPCs. Own-row `SELECT`; inserts only through `ingest_record_chunk` (and, for chat, `record_qa`). |
+| `study_qa` (`0018`) | Append-only Q/A history: one row per completed ask (`room_id`, client-generated `conversation_id`, `user_id`, question ≤ 2000 chars, answer, `citations` jsonb, token accounting, `created_at`). **No `INSERT`/`UPDATE`/`DELETE` grant for any application role** — every row is written by `record_qa`. `SELECT` is column-scoped (the history contract's columns only; token/model fields are ungranted, so a wildcard `SELECT` is `insufficient_privilege`). |
 | `ai_resource_for_ingest(p_resource_id) → study_resources` | The single authorization + gate helper: missing resource → `not_found`, personal-not-yours → `not_resource_owner`, non-member → `not_member`, over 20 MiB → `too_large`, non-indexable type → `unsupported_media_type`, no session → `42501`. **Execute revoked from every application role** — only 0013's definer functions call it. |
 | `ingest_begin(p_resource_id) → jsonb` | Authz re-check plus the only upsert of a `study_ai_documents` row: new rows start at `extracting`, an existing `failed` row is explicitly retried (resumes at `chunking` if extracted text survived, else `extracting`), all other states are returned unchanged (idempotent). |
 | `ingest_record_extraction(p_resource_id, p_text) → jsonb` | Stores normalized text and moves the row to `chunking`; extracted text over 16 MiB lands `failed` with `extracted_too_large`. |
@@ -611,6 +620,7 @@ select vector_dims(embedding)          -- after at least one ingest
 | `match_document_chunks(p_room_id, p_query_embedding, p_limit, p_threshold) → table(...)` | SECURITY DEFINER retrieval: membership guard for room scope, `owner_id = auth.uid()` for personal scope, `status = 'ready'` only, cosine score `1 - (embedding <=> query)` above the threshold, `p_limit` clamped 1–50. A non-member gets zero rows; the embedding column itself is never returned. |
 | `ai_usage_daily(p_user_id, p_room_id) → jsonb` | Today's `{ scope, used_bytes, used_tokens, limit_bytes (52428800), day_start }` for one scope; `p_user_id` must be the caller and a room scope requires membership (`not_found` otherwise). The same RPC `GET /api/ai/usage` reads and `ingest_record_chunk` enforces. |
 | `resource_owner_ids(p_resource_ids) → setof uuid` | The ownership signal pages need for the owner-only "Index now" button — `study_resources.owner_id` has no `SELECT` grant, so this definer helper returns exactly the subset the caller owns. |
+| `record_qa(p_room_id, p_conversation_id, p_question, p_answer, p_citations, p_model, p_prompt_tokens, p_completion_tokens, p_retrieval_tokens, p_retrieved_chunks) → jsonb` (`0018`) | The only insert path into `study_qa` (execute `authenticated` only): pins `user_id = auth.uid()`, re-checks room membership (`not_found`), validates the row, deduplicates a same-conversation/same-question row inside a 60-second window (returns the existing `{ qa_id, deduped: true, … }` instead of inserting), enforces the per-user daily chat-token cap (100 000, `ai_quota_exceeded`) against the same own-row `chat_tokens` sum the route pre-checks, and writes the `chat_tokens` (+ optional retrieval `embed_tokens`) ledger in the same transaction. Returns `{ qa_id, conversation_id, created_at, deduped, chat_used_today, chat_limit }`. |
 
 ## Verification performed
 
