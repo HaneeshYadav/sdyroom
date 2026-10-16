@@ -72,6 +72,8 @@ Level Security, Storage, Realtime).
 -  Study resources: personal library + room sharing, magic-byte validation,
   20 MiB ceiling, 300-second signed downloads, storage quotas, rate limits and
   orphan cleanup
+-  Ask my notes: room-scoped questions over indexed documents with real
+  citations, per-user history, and a daily AI budget (PR 13)
 -  Member safety: reports, one-way blocks, mutes, member removal, owner-appointed
   room moderators, and a moderation inbox that never shows the reporter
 - Light and dark themes

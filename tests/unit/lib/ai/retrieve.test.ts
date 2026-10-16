@@ -71,7 +71,11 @@ describe("retrieve", () => {
       roomId: null,
       query: "nothing relevant",
     });
-    expect(result).toEqual({ chunks: [], citations: [] });
+    expect(result).toEqual({
+      chunks: [],
+      citations: [],
+      usage: { embedTokens: expect.any(Number) },
+    });
   });
 
   it("throws RetrieveError when the RPC fails", async () => {
@@ -183,5 +187,68 @@ describe("retrieve", () => {
       score: 0.77,
       heading: "Chapter 3",
     });
+  });
+
+  it("reports the query embedding's token spend as usage", async () => {
+    const { client } = fakeClient([]);
+    const result = await retrieve(client as never, { roomId: null, query: "q" });
+    expect(result.usage.embedTokens).toBeGreaterThan(0);
+  });
+
+  it("narrows to the given resource ids after the RPC, renumbering citations", async () => {
+    const rows = [
+      row({ resource_id: DOC_A, chunk_id: "a1", score: 0.9, page_start: null }),
+      row({
+        resource_id: DOC_B,
+        chunk_id: "b1",
+        score: 0.8,
+        title: "Lab report",
+        page_start: null,
+      }),
+      row({ resource_id: DOC_A, chunk_id: "a2", score: 0.7, page_start: null }),
+    ];
+    const { client } = fakeClient(rows);
+    const result = await retrieve(client as never, {
+      roomId: null,
+      query: "q",
+      resourceIds: [DOC_B],
+    });
+
+    expect(result.chunks.map((chunk) => chunk.chunkId)).toEqual(["b1"]);
+    expect(result.citations).toEqual([
+      { resourceId: DOC_B, title: "Lab report", href: "/resources" },
+    ]);
+    expect(result.chunks[0].citation.n).toBe(1);
+  });
+
+  it("treats an empty resourceIds list as matching nothing", async () => {
+    const rows = [row({ chunk_id: "only" })];
+    const { client } = fakeClient(rows);
+    const result = await retrieve(client as never, {
+      roomId: null,
+      query: "q",
+      resourceIds: [],
+    });
+    expect(result.chunks).toEqual([]);
+    expect(result.citations).toEqual([]);
+  });
+
+  it("applies the top-k window after narrowing, not before", async () => {
+    const rows = [
+      row({ resource_id: DOC_A, chunk_id: "a1", score: 0.95 }),
+      row({ resource_id: DOC_B, chunk_id: "b1", score: 0.9, title: "Lab report" }),
+      row({ resource_id: DOC_B, chunk_id: "b2", score: 0.85, title: "Lab report" }),
+      row({ resource_id: DOC_B, chunk_id: "b3", score: 0.8, title: "Lab report" }),
+    ];
+    const { client } = fakeClient(rows);
+    const result = await retrieve(client as never, {
+      roomId: null,
+      query: "q",
+      topK: 2,
+      resourceIds: [DOC_B],
+    });
+    // Two best DOC_B chunks survive — DOC_A's higher score cannot steal a
+    // slot from outside the narrowed set.
+    expect(result.chunks.map((chunk) => chunk.chunkId)).toEqual(["b1", "b2"]);
   });
 });

@@ -56,6 +56,13 @@ export const INGEST_LIMIT = { max: 30, windowSeconds: 60 } as const;
 /** Sweep calls — maintenance, not UI; one sweep already advances many rows. */
 export const SWEEP_LIMIT = { max: 6, windowSeconds: 60 } as const;
 
+/**
+ * Ask calls (`POST /api/rooms/[id]/ask`). One question is one full RAG pass
+ * (embed + retrieve + complete); 20/60s per room bounds a scripted question
+ * loop while leaving a patient study session untouched.
+ */
+export const ASK_LIMIT = { max: 20, windowSeconds: 60 } as const;
+
 export function uploadUserKey(userId: string): string {
   return `upload:user:${userId}`;
 }
@@ -144,4 +151,12 @@ export function ingestSpec(userId: string): RateLimitSpec {
 
 export function sweepSpec(userId: string): RateLimitSpec {
   return { key: sweepKey(userId), ...SWEEP_LIMIT };
+}
+
+export function askKey(roomId: string, userId: string): string {
+  return `ask:${roomId}:${userId}`;
+}
+
+export function askSpec(roomId: string, userId: string): RateLimitSpec {
+  return { key: askKey(roomId, userId), ...ASK_LIMIT };
 }
