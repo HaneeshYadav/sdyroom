@@ -192,6 +192,51 @@ describe("NotificationBell", () => {
     expect(watchWakeups.mock.results[0]?.value).toBeTypeOf("function");
   });
 
+  it("posts a mark-read with keepalive so the deep link's navigation cannot cancel it", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, { notifications: [ROW], unread_count: 1 }),
+    );
+
+    render(<NotificationBell userId="u1" initialUnreadCount={1} />);
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    await waitFor(() => {
+      expect(screen.getByTestId("notification-row")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: /Invitation to Quiet Hall/ }));
+
+    // The row is a deep link: navigation starts while this POST is still in
+    // flight. Without keepalive the browser cancels it on unload and the
+    // optimistic badge hides a row the server still counts unread.
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/notifications/${ROW.id}/read`,
+        { method: "POST", keepalive: true },
+      );
+    });
+  });
+
+  it("posts a mark-all with keepalive so a reload right after the click cannot cancel it", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, { notifications: [ROW], unread_count: 1 }),
+    );
+
+    render(<NotificationBell userId="u1" initialUnreadCount={1} />);
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    await waitFor(() => {
+      expect(screen.getByTestId("notifications-mark-all")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId("notifications-mark-all"));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/notifications/read-all", {
+        method: "POST",
+        keepalive: true,
+      });
+    });
+  });
+
   it("walks the student back to login when a refresh 401s", async () => {
     fetchMock.mockResolvedValue(jsonResponse(401, { error: {} }));
 

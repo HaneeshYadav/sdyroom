@@ -87,7 +87,12 @@ export function NotificationsInbox({
     );
     setUnreadCount((count) => Math.max(0, count - 1));
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: "POST" });
+      // keepalive, same as the bell: this write must survive whatever
+      // navigation the row's deep link (or a reload) starts right after it.
+      await fetch(`/api/notifications/${id}/read`, {
+        method: "POST",
+        keepalive: true,
+      });
     } catch {
       void refresh();
     }
@@ -101,7 +106,10 @@ export function NotificationsInbox({
     );
     setUnreadCount(0);
     try {
-      await fetch("/api/notifications/read-all", { method: "POST" });
+      await fetch("/api/notifications/read-all", {
+        method: "POST",
+        keepalive: true,
+      });
     } catch {
       void refresh();
     } finally {

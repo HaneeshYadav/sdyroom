@@ -138,7 +138,14 @@ export function NotificationBell({
   const markRead = async (id: string) => {
     setUnreadCount((count) => Math.max(0, count - 1));
     try {
-      await fetch(`/api/notifications/${id}/read`, { method: "POST" });
+      // keepalive: the deep link navigates without waiting for this POST, and
+      // a write still in flight when the document unloads would be cancelled —
+      // the optimistic badge would then hide a row the server still counts
+      // unread, and nothing on the landing page would ever re-read it.
+      await fetch(`/api/notifications/${id}/read`, {
+        method: "POST",
+        keepalive: true,
+      });
     } catch {
       void refreshCount();
     }
@@ -150,7 +157,10 @@ export function NotificationBell({
       rows?.map((row) => ({ ...row, read_at: row.read_at ?? new Date().toISOString() })) ?? rows,
     );
     try {
-      await fetch("/api/notifications/read-all", { method: "POST" });
+      await fetch("/api/notifications/read-all", {
+        method: "POST",
+        keepalive: true,
+      });
     } catch {
       void refreshCount();
     }

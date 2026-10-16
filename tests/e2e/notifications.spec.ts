@@ -50,31 +50,44 @@ async function openBellDropdown(page: Page) {
 }
 
 /**
- * Converges the badge on `expected` without a reload. The live channel
- * usually delivers first, but under full-suite load its join can still be in
- * flight, and a mark-read POST can still be travelling while the deep-link
- * navigation lands — both are product-supported states ("the next wakeup
- * re-syncs"), so the poll re-dispatches the focus event the tab already
- * listens on until the badge matches. The polling fallback is a shipped
- * mechanism, not a reload the test invents.
+ * Converges on `expected` without a reload, and refuses to pass until both
+ * truths agree — this is the assertion the deep-link and mark-all races hang
+ * on, so it has to be harder to satisfy than the race it watches:
+ *
+ * 1. The server's unread count, read after the focus wakeup the tab already
+ *    listens on. The badge alone cannot be trusted at this point: mark-read
+ *    and mark-all decrement it optimistically, so immediately after a click
+ *    the badge is *absent* while the server still counts the row unread — an
+ *    absence-only check would pass before the write has even landed (it did;
+ *    that false green is what let a cancelled mark-read reach the inbox
+ *    assertion unnoticed).
+ * 2. The badge itself, which must then reflect that count (absent at zero,
+ *    the number otherwise). The wakeup's own refresh delivers the update; the
+ *    expect retry window absorbs the round trip.
  */
 async function expectBadge(page: Page, expected: number) {
   await expect
     .poll(
       async () => {
         await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-        const count = await badge(page).count();
-        if (expected === 0) {
-          return count;
-        }
-        if (count === 0) {
-          return -1;
-        }
-        return Number(await badge(page).textContent());
+        return page.evaluate(async () => {
+          const response = await fetch("/api/notifications/unread-count", {
+            cache: "no-store",
+          });
+          if (!response.ok) return -1;
+          const body = (await response.json()) as { unread_count?: number };
+          return typeof body.unread_count === "number" ? body.unread_count : -1;
+        });
       },
       { timeout: 15_000, intervals: [250, 500, 1_000] },
     )
     .toBe(expected);
+
+  if (expected === 0) {
+    await expect(badge(page)).toHaveCount(0);
+  } else {
+    await expect(badge(page)).toHaveText(String(expected));
+  }
 }
 
 test("live invite, deep link, mark-all, and preference suppression", async ({
