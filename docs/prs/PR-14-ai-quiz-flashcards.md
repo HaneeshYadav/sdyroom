@@ -1,7 +1,7 @@
 # PR 14 — AI quiz and flashcards from my documents
 
 **Status:** specification only — no GitHub PR exists.
-**Owner:** Dev A (OpenCode) · **Complexity:** Large · **Migration:** `0013_quiz_artifacts.sql`
+**Owner:** Dev A (OpenCode) · **Complexity:** Large · **Migration:** `0019_quiz_artifacts.sql`
 **Depends on:** PR 12 (ingestion), PR 13 (grounded-generation + citation pipeline to reuse)
 
 ---
@@ -114,7 +114,7 @@ ai_provider_failed` (never persist a half-parsed artifact as `ready`).
 
 ### Database work
 
-`supabase/migrations/0013_quiz_artifacts.sql`:
+`supabase/migrations/0019_quiz_artifacts.sql`:
 
 - `study_artifacts(id uuid pk, room_id uuid not null references rooms on delete
   cascade, creator_id uuid not null references auth.users on delete cascade,
@@ -284,7 +284,7 @@ Positive guarantees:
 ### Files / modules likely affected
 
 ```
-supabase/migrations/0013_quiz_artifacts.sql              (new)
+supabase/migrations/0019_quiz_artifacts.sql              (new)
 app/(app)/rooms/[id]/generate/page.tsx                   (new) + loading/error
 app/(app)/rooms/[id]/quizzes/[artifactId]/page.tsx       (new) + loading/error
 app/(app)/rooms/[id]/decks/[artifactId]/page.tsx         (new) + loading/error

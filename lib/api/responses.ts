@@ -42,6 +42,35 @@ export async function readJsonBody(
 }
 
 /**
+ * Reads a body that may be absent entirely: empty → `{}` (so a schema
+ * default applies), malformed JSON → `ok: false` (400 `invalid_json`), any
+ * other JSON value is passed through for the schema to judge.
+ *
+ * `readJsonBody` cannot distinguish "no body" from "broken body" — both make
+ * `request.json()` throw — yet resumable endpoints treat those differently:
+ * `POST /api/ai/ingest/[id]` with no body must mean `{"step":"auto"}`, while
+ * a truncated body must still be a 400.
+ */
+export async function readOptionalJsonBody(
+  request: NextRequest,
+): Promise<{ ok: true; body: unknown } | { ok: false }> {
+  let text: string;
+  try {
+    text = await request.text();
+  } catch {
+    return { ok: false };
+  }
+  if (text.trim() === "") {
+    return { ok: true, body: {} };
+  }
+  try {
+    return { ok: true, body: JSON.parse(text) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
  * Reads a request body that must be absent or an empty JSON object.
  *
  * Membership endpoints take their identity from the session only, so there is

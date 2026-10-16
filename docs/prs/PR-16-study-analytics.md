@@ -141,7 +141,7 @@ Implementation rules:
   - `focus_sessions(user_id, started_at)`, `focus_sessions(room_id, started_at)`,
   - `study_goals(user_id, status, due_date)` (partial index on active if useful),
   - `quiz_attempts(user_id, created_at)`,
-  - `flashcard_reviews(user_id, next_review_at)` (from `0013`).
+  - `flashcard_reviews(user_id, next_review_at)` (from `0019`).
 - No new tables. No grants on base tables change — **the RPCs only `select`**,
   so the existing row-level grants are untouched (a deliberate constraint: this
   PR must not widen any privilege to add a chart).

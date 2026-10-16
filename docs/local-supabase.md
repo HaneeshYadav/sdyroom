@@ -116,6 +116,15 @@ narrow column-level grant on the new prefs column, and the table's entry in
 the `supabase_realtime` publication. Rows can never be `INSERT`ed by any
 application role: the exact verbs `authenticated` holds are `SELECT`,
 `UPDATE (read_at)` and `DELETE`, all scoped by `user_id = auth.uid()`.
+`supabase/migrations/0013_ai_documents.sql` adds the AI document foundation:
+the `vector` extension in the `extensions` schema (pgvector), three tables
+(`study_ai_documents` with the ingest state machine, `document_chunks` with a
+`vector(1536)` embedding and an HNSW index, `ai_usage`), three own/visible-row
+select policies with **no write policy anywhere**, and the ingest/retrieval
+RPCs (`ingest_begin`, `ingest_record_extraction`, `ingest_record_chunks`,
+`ingest_record_chunk`, `ingest_mark_failed`, `match_document_chunks`,
+`ai_usage_daily`, plus helpers) — every write to the three tables travels
+through those SECURITY DEFINER functions.
 
 | Table | Key columns | Notes |
 | --- | --- | --- |
@@ -177,6 +186,21 @@ to `authenticated` only. `notifications_unread_count()` is invoker's-rights
 and likewise `authenticated`-only; `prune_notifications(before)` is granted to
 `service_role` alone, so no application request can invoke retention. A psql
 probe in `tests/integration/notifications.test.ts` freezes this matrix.
+
+`study_ai_documents`, `document_chunks` and `ai_usage` (`0013`) follow the
+same shape: absent from the table above, revoke-first, and **read-only for
+clients** — `authenticated` holds column-scoped `SELECT` on each (so no
+`INSERT`/`UPDATE`/`DELETE` reaches the state machine or the chunk table, and
+`document_chunks.embedding` is granted for no verb at all: raw vectors can
+never be selected through PostgREST). Every write is one of 0013's SECURITY
+DEFINER RPCs. Execute on `ingest_begin`, `ingest_record_extraction`,
+`ingest_record_chunks`, `ingest_record_chunk`, `ingest_mark_failed`,
+`match_document_chunks`, `ai_usage_daily`, `resource_owner_ids` and
+`is_resource_owner` is revoked from `public`/`anon` and granted only to
+`authenticated`; the internal helper `ai_resource_for_ingest` and the trigger
+function `study_ai_documents_touch()` are executable by **no** application
+role at all (only this migration's definer functions and the trigger call
+them).
 
 **No `UPDATE` or `DELETE` grant on `rooms` / `room_members` — and since `0008`
 that is a deliberate design, not an undeveloped flow.** Room edits and deletion go
@@ -255,6 +279,8 @@ rows.
 | `user_blocks` | `user_blocks_select_own` (`0009`) | `blocker_id = auth.uid()` only — the same reasoning as `room_mutes`; the blocked side never sees the row that names them |
 | `rate_limits` | none (`0010`) | RLS enabled with **zero policies**: even if a grant ever appeared, every read and write would be filtered to nothing. `tests/integration/resource-hardening.test.ts` widens the grant inside the test and observes exactly that (`select` → 0 rows, `insert` → row-level security refusal), then revokes and re-checks `has_table_privilege` = `f` |
 | `notifications` | `notifications_select_own` / `update_own` / `delete_own` (`0012`) | `user_id = auth.uid()` on all three verbs — a student lists, marks read and deletes only their own rows. There is deliberately no insert policy (and no insert grant), so a hypothetical widened grant would still produce nothing: the same two-layer shape as `rate_limits`, minus the RPC-only reads |
+| `study_ai_documents`, `document_chunks` | `study_ai_documents_select_visible` / `document_chunks_select_visible` (`0013`) | the same audience as `study_resources`: your own files, plus files shared into rooms you are a member of right now — `is_resource_owner(...)` (a definer helper, because `study_resources.owner_id` carries no `SELECT` grant) OR a current `room_members` row. No insert/update/delete policy exists **and** no matching grant does either — two independent layers, so the state machine and the chunk table are RPC-only |
+| `ai_usage` | `ai_usage_select_own` (`0013`) | `user_id = auth.uid()` — a student reads only their own ledger rows; every insert travels through `ingest_record_chunk` |
 | `realtime.messages` | `room_presence_select_member` / `room_presence_insert_member` (`0006`) | the whole of the private-channel gate for `room-presence-{uuid}` topics: `authenticated` only, extension must be `broadcast`/`presence`, and the uuid in the topic must match a current `room_members` row for `auth.uid()` — so a non-member (or an anonymous client) cannot join, cannot confirm a private room exists, and cannot read another room's roster. Realtime's authorization probes run as the caller inside a transaction that rolls back, so nothing is ever written |
 
 Storage objects have their own four policies (next section); they are not listed
@@ -512,7 +538,8 @@ database.
 Rate windows (published in `docs/API_CONTRACTS.md`, implemented in
 `lib/rate-limit/keys.ts`): upload 20/min per user and 10/min per target,
 delete 30/min, signed URL 120/min, sweep 5/min; reports 20/hour, blocks and
-mutes 30/hour, invitations 10/hour. The limiter **fails open** by design
+mutes 30/hour, invitations 10/hour; AI ingest steps 30/min and AI ingest
+sweeps 6/min (`0013`/PR 12). The limiter **fails open** by design
 (`lib/rate-limit/check.ts`): only an explicit `false` refuses, and a database
 hiccup is logged rather than turned into an outage.
 
@@ -533,6 +560,57 @@ grace period in both directions.
 | `notifications_unread_count() → integer` | Invoker's-rights (not definer) count of the caller's own unread rows — named to avoid public-schema pollution and granted to `authenticated` only. |
 | `prune_notifications(p_before) → integer` | SECURITY DEFINER retention, **execute `service_role` only** — no application request can invoke it, and no cron is configured yet (recorded as a known limitation in `docs/SECURITY.md`). |
 | `profiles.notification_prefs` | jsonb column, default `'{"default": "all"}'`. Values from `all`/`mentions_and_invites`/`none`; `mentions_and_invites` means invites-only; `system` events ignore preferences. Writable through a narrow column-level `UPDATE` grant only. |
+
+## pgvector and the AI ingest functions (`0013_ai_documents.sql`)
+
+**pgvector** is installed by the migration itself — `create extension if not
+exists vector with schema extensions;` (after `create schema if not exists
+extensions`), and a stack that already has the extension in another schema is
+normalised with `alter extension vector set schema extensions`, failing loudly
+if it cannot be moved. `pgvector` ships bundled in the local Supabase image,
+so `npx supabase db reset` provisions it with everything else — no extra
+startup flag is needed.
+
+The dimension is **fixed at 1536**, matching `text-embedding-3-small`-class
+models (the default `AI_EMBED_MODEL`):
+
+- column `document_chunks.embedding extensions.vector(1536) not null` (a
+  column CHECK rejects a wrong-width vector even through a definer RPC), with
+  an HNSW index (`vector_cosine_ops`, pgvector defaults `m = 16`,
+  `ef_construction = 64` for v1);
+- RPC signature `match_document_chunks(p_room_id uuid, p_query_embedding
+  extensions.vector(1536), p_limit int default 8, p_threshold float8 default
+  0.2)`.
+
+Changing the embedding model therefore requires a **new migration** that drops
+and recreates the column, the index and every RPC signature, plus a full
+re-embed of every ready document — never an edit to `0013` (the migration
+header says so, and `tests/integration/ai-ingestion.test.ts` asserts
+`vector_dims(embedding) = 1536`).
+
+Verify against the local stack (port 54322):
+
+```sql
+\dx                                    -- or: select extname from pg_extension;
+                                       --   → 'vector' present
+select vector_dims(embedding)          -- after at least one ingest
+  from public.document_chunks limit 1; --   → 1536
+```
+
+| Object | Behaviour |
+| --- | --- |
+| `study_ai_documents` | One row per ingested resource (PK = `resource_id`, `ON DELETE CASCADE`). `status` CHECK `pending/extracting/chunking/embedding/ready/failed`; `error_code` CHECK over `no_text_layer`/`extract_failed`/`extracted_too_large`/`ingest_failed`/`ai_quota_exceeded`/`ai_provider_failed`; transient `extracted_text`/`pending_chunks` carry work between one-step-per-request calls and are cleared at `ready`. Select-only for `authenticated` (visible-row policy), no write grant or policy — the `updated_at` trigger doubles as the sweep's stuck-row clock. |
+| `document_chunks` | Ordered chunk text + `vector(1536)` embedding, `unique (resource_id, ordinal)` and a deterministic `chunk_hash = sha256(resource_id ‖ ordinal ‖ text)` so re-runs are idempotent. Written only by the ingest RPCs; `SELECT` is column-scoped and **excludes `embedding`** — vectors never leave over PostgREST. HNSW index above. |
+| `ai_usage` | Per-call ledger (`embed_bytes`/`embed_tokens`, later `chat_tokens`); daily caps are `sum`s inside the RPCs. Own-row `SELECT`; inserts only through `ingest_record_chunk`. |
+| `ai_resource_for_ingest(p_resource_id) → study_resources` | The single authorization + gate helper: missing resource → `not_found`, personal-not-yours → `not_resource_owner`, non-member → `not_member`, over 20 MiB → `too_large`, non-indexable type → `unsupported_media_type`, no session → `42501`. **Execute revoked from every application role** — only 0013's definer functions call it. |
+| `ingest_begin(p_resource_id) → jsonb` | Authz re-check plus the only upsert of a `study_ai_documents` row: new rows start at `extracting`, an existing `failed` row is explicitly retried (resumes at `chunking` if extracted text survived, else `extracting`), all other states are returned unchanged (idempotent). |
+| `ingest_record_extraction(p_resource_id, p_text) → jsonb` | Stores normalized text and moves the row to `chunking`; extracted text over 16 MiB lands `failed` with `extracted_too_large`. |
+| `ingest_record_chunks(p_resource_id, p_chunks) → jsonb` | Writes the chunk drafts (no vectors yet), moves the row to `embedding`. |
+| `ingest_record_chunk(p_resource_id, p_chunks, p_model, p_tokens) → jsonb` | The embed step's authority: re-checks the 50 MiB/day scope cap, deletes not-ready chunks for a re-run, inserts chunks + embeddings (as jsonb floats — no provider key ever reaches the database), computes `chunk_hash`, sets `ready`, and accumulates the `ai_usage` ledger in the same transaction. |
+| `ingest_mark_failed(p_resource_id, p_error_code, p_status)` | Records a failure on `failed` (document outcome) or `embedding` (provider failure — stays resumable). |
+| `match_document_chunks(p_room_id, p_query_embedding, p_limit, p_threshold) → table(...)` | SECURITY DEFINER retrieval: membership guard for room scope, `owner_id = auth.uid()` for personal scope, `status = 'ready'` only, cosine score `1 - (embedding <=> query)` above the threshold, `p_limit` clamped 1–50. A non-member gets zero rows; the embedding column itself is never returned. |
+| `ai_usage_daily(p_user_id, p_room_id) → jsonb` | Today's `{ scope, used_bytes, used_tokens, limit_bytes (52428800), day_start }` for one scope; `p_user_id` must be the caller and a room scope requires membership (`not_found` otherwise). The same RPC `GET /api/ai/usage` reads and `ingest_record_chunk` enforces. |
+| `resource_owner_ids(p_resource_ids) → setof uuid` | The ownership signal pages need for the owner-only "Index now" button — `study_resources.owner_id` has no `SELECT` grant, so this definer helper returns exactly the subset the caller owns. |
 
 ## Verification performed
 

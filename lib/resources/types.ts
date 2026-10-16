@@ -1,3 +1,5 @@
+import type { AiDocumentStatusInfo } from "@/lib/ai/types";
+
 /**
  * Content types this milestone accepts. The list is closed: anything else is
  * rejected before it reaches storage.
@@ -46,6 +48,19 @@ export type StudyResource = {
   room_id: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * AI index state (PR 12). `null` = no `study_ai_documents` row exists yet
+   * ("Not indexed"); the status/error_code pair drives the chip and the
+   * owner-only "Index now" retry. Derived from a read-time embed — never
+   * stored on the resource row.
+   */
+  ai: AiDocumentStatusInfo | null;
+  /**
+   * Whether the *viewer* owns this file. `owner_id` itself stays unreadable
+   * (no SELECT grant — 0005); this boolean comes from the
+   * `resource_owner_ids` RPC and is what gates owner-only actions in the UI.
+   */
+  is_owner: boolean;
 };
 
 /** Explicit column list — never `SELECT *`, matching `STUDY_GOAL_COLUMNS`. */

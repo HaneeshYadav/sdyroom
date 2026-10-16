@@ -462,6 +462,23 @@ npm ci
    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<local publishable key>
    ```
 
+   The AI variables are optional, server-side only (never `NEXT_PUBLIC_*`),
+   and are read in one place — `lib/ai/config.ts`:
+
+   | Variable | Default | Notes |
+   | --- | --- | --- |
+   | `AI_PROVIDER` | `auto` | `auto` \| `openai` \| `mock`. `auto` picks `openai` when `AI_API_KEY` is set and `mock` when it is not |
+   | `AI_API_KEY` | — | Provider key. Never logged, never in a payload, never exposed to the browser |
+   | `AI_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-shaped endpoint; ops can switch providers without a code change |
+   | `AI_EMBED_MODEL` | `text-embedding-3-small` | Embedding dimension is fixed at **1536** for this model class — changing models needs a new migration and a full re-embed |
+   | `AI_CHAT_MODEL` | `gpt-4o-mini` | Used by the later completion features (PR 13+) |
+   | `AI_MAX_INGEST_BYTES` | `20971520` (20 MiB) | Ingest ceiling; clamped to the 20 MiB upload ceiling no matter what is configured |
+
+   The rule: **no key configured → the mock provider runs the whole pipeline**
+   and a demo-mode banner is shown app-wide; **a configured provider never
+   silently falls back to mock** — a broken key fails loudly as
+   `502 ai_provider_failed`.
+
 2. Start the local stack and apply every migration:
 
    ```bash

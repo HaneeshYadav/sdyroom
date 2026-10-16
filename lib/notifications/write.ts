@@ -47,6 +47,23 @@ export type ReportNotificationEvent = {
 
 export type NotifyEvent = RoomNotificationEvent | ReportNotificationEvent;
 
+/**
+ * The self-only producer family — `resource_ready`, `ai_task_complete`,
+ * `system`. No alias resolution and no room check: `push_notification`
+ * requires `p_user_id = auth.uid()` for exactly these three types, so the
+ * uuid here must be the session's own user, and the room is only a deep link
+ * (null for a personal file). Same best-effort contract as `notify`.
+ */
+export type SelfNotificationType = "resource_ready" | "ai_task_complete" | "system";
+
+export type SelfNotificationEvent = {
+  type: SelfNotificationType;
+  userId: string;
+  roomId: string | null;
+  payload: NotificationPayload;
+  dedupeKey?: string;
+};
+
 /** Subject keys the dedupe index collapses on — one unread row per key. */
 export function roomDedupeKey(type: string, roomId: string): string {
   return `${type}:${roomId}`;
@@ -70,7 +87,7 @@ export async function notify(
         p_payload: event.payload,
         p_dedupe_key: event.dedupeKey ?? null,
       });
-      logUnexpected(event, result as RpcResult);
+      logUnexpected(event.type, result as RpcResult);
       return;
     }
 
@@ -99,13 +116,31 @@ export async function notify(
       p_room_id: event.roomId,
       p_dedupe_key: event.dedupeKey ?? null,
     });
-    logUnexpected(event, result as RpcResult);
+    logUnexpected(event.type, result as RpcResult);
   } catch (error) {
     console.error(`[notify] ${event.type} failed:`, error);
   }
 }
 
-function logUnexpected(event: NotifyEvent, result: RpcResult): void {
+export async function notifySelf(
+  client: SupabaseClient,
+  event: SelfNotificationEvent,
+): Promise<void> {
+  try {
+    const result = (await client.rpc("push_notification", {
+      p_user_id: event.userId,
+      p_type: event.type,
+      p_payload: event.payload,
+      p_room_id: event.roomId,
+      p_dedupe_key: event.dedupeKey ?? null,
+    })) as RpcResult;
+    logUnexpected(event.type, result);
+  } catch (error) {
+    console.error(`[notify] ${event.type} failed:`, error);
+  }
+}
+
+function logUnexpected(type: string, result: RpcResult): void {
   if (result.error) {
     throw new Error(`notification RPC failed: ${result.error.message}`);
   }
@@ -118,7 +153,7 @@ function logUnexpected(event: NotifyEvent, result: RpcResult): void {
   // collapse rule; anything else is worth an operator's eye in the logs.
   if (code !== "created" && code !== "deduped" && code !== "muted") {
     console.error(
-      `[notify] ${event.type} returned unexpected code:`,
+      `[notify] ${type} returned unexpected code:`,
       code ?? "null",
       envelope ?? result.data,
     );

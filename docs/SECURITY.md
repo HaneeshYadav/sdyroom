@@ -47,6 +47,10 @@ file carries the model behind them.
 | Muted member bypassing the mute | `POST /rest/v1/room_messages` straight at PostgREST | The INSERT policy's `with check` requires no active mute → `42501`; the API route maps the same refusal to `403 muted`, and the composer is disabled up front |
 | Block discovered by the blocked user | "Did they block me?" probing | `user_blocks` is `SELECT` own-rows only, no endpoint tells the other side, and the invitation refusal (`409 blocked`) is reachable only by the invitee — i.e. only the person who blocked ever sees it |
 | Moderator over-reach | A moderator acting outside their room, or a member claiming moderator | Every RPC re-derives `auth.uid()` and re-proves owner-or-`room_moderators` **within that `room_id`**; there is no global admin role, cross-room calls answer `404`/`403`, and a plain member's attempt is `403 not_moderator` with zero rows touched |
+| Provider key exfiltration | Reading `AI_API_KEY` from the client bundle, a request/response payload or a log line | `lib/ai/config.ts` is server-side only: the variable is never read as `NEXT_PUBLIC_*`, never serialised, never logged and never echoed in an error or response — it travels only in the `Authorization` header of outbound server-to-server calls. `AI_PROVIDER=auto` resolves to `mock` only when no key is set; a configured provider that fails answers `502 ai_provider_failed` and never falls back to mock (`lib/ai/providers/openai.ts`) |
+| AI spend abuse | A tight loop driving `POST /api/ai/ingest/[resourceId]` to burn provider budget | One bounded step per request (≤ ~2 s), fixed windows `ingest:user:{id}` 30/60 s and `sweep:user:{id}` 6/60 s, PR 10's 20 MiB ceiling re-checked inside `ai_resource_for_ingest`, a 16 MiB extracted-text cap, and a 50 MiB/day embedded-bytes cap per scope — pre-checked in the route so no provider call is made at all when the cap is spent, and enforced again inside `ingest_record_chunk` as the race-safe authority. Over-cap is `403 ai_quota_exceeded` |
+| Chunk-table poisoning / cross-scope retrieval | Direct `INSERT`/`UPDATE` on `document_chunks`, or `match_document_chunks` called with a crafted embedding for a room the caller is not in | No `INSERT`/`UPDATE`/`DELETE` grant on `study_ai_documents`, `document_chunks` or `ai_usage` (and no `SELECT` grant at all on `document_chunks.embedding`) — every write travels through 0013's SECURITY DEFINER RPCs. `match_document_chunks` is SECURITY DEFINER with the guard inside: a non-member gets zero rows, personal scope pins `owner_id = auth.uid()`, and only `ready` documents match |
+| Prompt injection through an uploaded file (PRs 13–16) | A document containing "ignore previous instructions…" that later surfaces in an AI answer | The posture is fixed now and enforced by the consuming PRs: retrieved chunk text is **untrusted data** — wrapped as delimited data in a prompt, never concatenated into the system prompt, never executed as instructions. Citations link to app routes (`/resources`, `/rooms/{id}`), never to storage URLs. See the AI section below |
 
 ## Room presence: what it discloses
 
@@ -194,6 +198,64 @@ so each rule is stated rather than implied:
   `prune_notifications(before)` is granted to `service_role` alone —
   authenticated cannot execute it (integration probe) — and no cron is
   configured yet; the limitation is recorded in "Not covered, on purpose".
+
+## AI document foundation: keys, cost, retrieval, injection (PR 12)
+
+`0013_ai_documents.sql` and `lib/ai/*` state four rules explicitly, because
+each is the kind of thing that silently rots:
+
+- **The provider key is server-side only.** `AI_API_KEY` is read in one place,
+  `lib/ai/config.ts`, and is never exposed through a `NEXT_PUBLIC_*` variable,
+  never serialised into a payload, never logged, and never echoed back in an
+  error message or response — the key travels only in the `Authorization`
+  header of outbound server-to-server requests. `AI_PROVIDER` resolves `auto`
+  by the key-presence rule: a key present → `openai`, absent → `mock` (honest
+  demo mode, announced by a banner). `AI_PROVIDER=openai` with **no** key is a
+  configuration mistake that fails loudly as `502 ai_provider_failed`; a
+  configured provider that errors in production likewise surfaces `502` with
+  the row left resumable — there is **no fallback to the mock provider on any
+  provider error**, so a broken production key can never masquerade as demo
+  mode. `AI_PROVIDER=mock` is an explicit, deliberate choice (tests, demos).
+  Embeddings are produced server-side only; the database receives vectors as
+  jsonb floats through `ingest_record_chunk`, so no provider key ever touches
+  Postgres.
+- **Cost and abuse controls are layered, like the storage quota.** The 50 MiB
+  embedded-bytes cap per scope (personal per user, room per room) per day is
+  accumulated in the `ai_usage` ledger **inside `ingest_record_chunk`**, which
+  re-checks it in the same transaction as the write — that is the race-safe
+  authority; the ingest route runs a pre-check (`ai_usage_daily`) purely so an
+  already-spent budget never reaches the provider at all, answering `403
+  ai_quota_exceeded` with zero provider calls made. On top of that: the shared
+  fixed-window limiter (`ingest:user:{id}` 30/60 s, `sweep:user:{id}` 6/60 s),
+  **one bounded step per request** (no request embeds more than one document's
+  worth of work, ≤ ~2 s), PR 10's 20 MiB object ceiling re-checked inside
+  `ai_resource_for_ingest` against the stored row — and again against the
+  actual downloaded object before extraction — and a 16 MiB cap on extracted
+  text (`extracted_too_large`), so a small but highly compressible PDF cannot
+  inflate chunk counts. Route-level quota and rate-limit rejections happen
+  before any provider call; the RPC-level quota check is the authority that
+  runs last.
+- **Retrieval authorization lives in the database, not the route.**
+  `match_document_chunks` (0013) is SECURITY DEFINER with `set search_path =
+  ''` and the guards *inside*: a caller with no session returns nothing, a
+  `p_room_id` the caller is not a member of returns zero rows, personal scope
+  (`p_room_id IS NULL`) is pinned to `s.owner_id = auth.uid()`, and only
+  `status = 'ready'` documents are ever matched — so a non-member gets zero
+  rows even with a perfectly crafted query embedding. Writes are RPC-only:
+  `study_ai_documents` and `document_chunks` carry no `INSERT`/`UPDATE`/`DELETE`
+  grant for any role (execute revoked from `public`/`anon` on the ingest RPCs),
+  so a direct PostgREST write dies on `42501` before any policy, and
+  `document_chunks.embedding` has no `SELECT` grant at all — raw vectors are
+  never exported; retrieval returns scores instead.
+- **Retrieved text is data, never instructions (the posture for PRs 13–16).**
+  Chunk text originates from user uploads and is therefore untrusted input:
+  callers must wrap it as delimited *data* in the user/app part of a prompt,
+  never concatenate it into the system prompt, and never let it be executed as
+  instructions. Citations are assembled from app routes (`/resources` for
+  personal files, `/rooms/{roomId}` for room files) — never storage URLs — so
+  a poisoned document cannot smuggle a link either. This is written down now,
+  before any completion feature lands; the consuming PRs own the enforcement
+  and its tests.
 
 ## Study resources: where the rules live
 
