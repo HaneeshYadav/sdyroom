@@ -1,6 +1,6 @@
 # PR 13 — Ask my notes (room-scoped RAG chat over my own documents)
 
-**Status:** implemented on `feat/ask-my-notes` — awaiting GitHub PR.
+**Status:** in review as [PR #19](https://github.com/chanukyareddygopala07/sdyroom/pull/19) (`feat/ask-my-notes`, `a6b72a4`).
 **Owner:** Dev B (Cursor) · **Complexity:** Large · **Migration:** `0018_qa_history.sql`
 **Depends on:** PR 12 (ingestion + `retrieve()` — hard gate; no AI code exists before it)
 **Related:** PR 14 (quiz/flashcards consumes this PR's answer+citation pipeline), PR 19 (chat layout shell)
