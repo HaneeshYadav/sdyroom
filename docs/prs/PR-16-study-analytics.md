@@ -1,7 +1,8 @@
 # PR 16 — Study analytics (personal + room insights)
 
-**Status:** in review — implemented on `feat/study-analytics` (migration
-`0021_analytics.sql`; the roadmap's `0014` number was stale and is updated).
+**Status:** in review — GitHub PR #22, implemented on `feat/study-analytics`
+(migration `0021_analytics.sql`; the roadmap's `0014` number was stale and is
+updated).
 **Owner:** Dev A (OpenCode) · **Complexity:** Medium · **Migration:** `0021_analytics.sql`
 **Depends on:** PR 14 (`quiz_attempts` is a primary input — hard gate), PR 12 (session/ingest ledgers exist); soft: 15 consumes these aggregates afterwards
 

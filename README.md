@@ -93,6 +93,9 @@ Level Security, Storage, Realtime).
 
 -  AI study planner (PR 15, GitHub PR #21) — personal day-by-day plans
   with deterministic adjustments; see the [Roadmap](#roadmap) for status
+-  Study analytics (PR 16, GitHub PR #22) — personal dashboard with
+  streaks, accuracy and CSV export, plus room aggregates for owners and
+  moderators; see the [Roadmap](#roadmap) for status
 
 <a name="planned"></a>
 
