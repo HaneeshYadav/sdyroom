@@ -100,6 +100,9 @@ Level Security, Storage, Realtime).
 -  Study analytics (PR 16, GitHub PR #22) — personal dashboard with
   streaks, accuracy and CSV export, plus room aggregates for owners and
   moderators; see the [Roadmap](#roadmap) for status
+-  Advanced room discovery (PR 17, GitHub PR #23) — URL-driven search,
+  filters and sorts over public rooms only, cursor paging, and a
+  public-safe preview page; see the [Roadmap](#roadmap) for status
 
 <a name="planned"></a>
 

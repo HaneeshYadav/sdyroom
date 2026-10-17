@@ -1,7 +1,8 @@
 # PR 17 — Room discovery improvements
 
-**Status:** in review — implemented on `feat/advanced-room-discovery` (migration
-`0022_discovery_indexes.sql`; the roadmap's `0016` number was stale and is updated).
+**Status:** in review — GitHub PR #23, implemented on
+`feat/advanced-room-discovery` (migration `0022_discovery_indexes.sql`; the
+roadmap's `0016` number was stale and is updated).
 **Owner:** Dev A (OpenCode) · **Complexity:** Medium · **Migration:** `0022_discovery_indexes.sql`
 **Depends on:** PR 06 (presence/membership context in room cards), soft: PR 08 (`Closed` badge already lands there), PR 09 (only rooms you can be reported in are worth surfacing safely)
 
