@@ -1405,6 +1405,63 @@ range, non-UUID room id) · `401 unauthenticated` · `404 not_found` ·
 
 ---
 
+## Room discovery (PR 17)
+
+Browse: session claims → one `room_filter_options` round trip (the distinct
+subjects/exam tracks/languages of **public** rooms only) plus one
+`list_public_rooms` round trip → `{ rooms, has_more, next_cursor }`. The RPC
+hard-codes `visibility = 'public'`, so no parameter can widen it. `q`,
+`subject`, `exam_track`, `language` and `min_members` filter; `sort` picks
+the keyset (`recent` | `active` | `largest` | `name`, or `relevance` when a
+query is present and no sort is given — `relevance` **without** a query is
+SQLSTATE `22023`, mapped to `400`); `limit` defaults to 20 and caps at 50;
+`cursor` is the opaque base64url keyset of the previous page, validated in
+the data layer (`lib/rooms/discovery.ts`) before SQL sees it — a malformed or
+wrong-sort cursor is a `400`, never a SQL error. `has_more` comes from
+fetching limit+1 rows, so there is **no total count** (a count would need a
+second scan and would drift under pagination). Every room carries
+`viewer_membership` (the caller's own row only) and `member_count` (an
+aggregate — never participant identities); the route adds
+`href: /rooms/{id}/preview` on top of the data layer's `RoomSummary`.
+
+Preview: session claims, no membership required — any signed-in student may
+preview a **public** room. `room_preview` raises the same `P0002` for a
+private room the caller does not belong to and for a room that does not
+exist, so both are the identical `404 not_found` (never an existence oracle);
+a non-UUID id is the same `404` byte-for-byte. A member previewing their own
+room (public or private) gets the row with `is_member: true` and
+`viewer_role` (`owner` | `member` | `none`).
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `GET` | `/api/rooms?q=&subject=&exam_track=&language=&min_members=&sort=&limit=&cursor=` | Discovery page over public rooms only; `{ rooms, has_more, next_cursor }` |
+| `GET` | `/api/rooms/[id]/preview` | Public-safe room detail — `{ room, is_member }`; identical `404` for private-non-member, missing and malformed ids |
+
+Errors: `400 validation` (unknown filter value, `relevance` without a query,
+malformed cursor) · `401 unauthenticated` · `404 not_found` (preview) ·
+`500 query_failed` / `preview_failed`. The **pages** (`/rooms`,
+`/rooms/[id]/preview`) validate with the same Zod schema; an invalid query
+renders the explained empty list, and the preview page renders `notFound()`
+for every refusal the API gives (repo convention: the streamed page's HTTP
+status is not asserted — the rendered "Page not found" heading is).
+
+### Internal contracts: the discovery RPCs (0022)
+
+| RPC | Behaviour |
+| --- | --- |
+| `list_public_rooms(p_q, p_subject, p_exam_track, p_language, p_min_members, p_sort, p_limit, p_cursor) → setof rooms` | SECURITY DEFINER, `set search_path = ''`, execute revoked from `public`/`anon`, granted to `authenticated`. Hard-codes `visibility = 'public'`; `p_limit` is clamped to 1–50 (default 20); `p_cursor` is a `jsonb` keyset the caller (the data layer) has already validated against `p_sort`; `relevance` without `p_q` raises `22023`. `last_activity_at` is `greatest(max(focus_sessions.started_at), max(room_messages.created_at))`, computed in the same query — no extra round trip, no client clock. |
+| `room_preview(p_room_id) → jsonb` | Same hardening. Public rooms are visible to any session; a private room is visible only to its members (`P0002` otherwise — identical to a missing room). Returns the shaped row plus `is_member` and `viewer_role` (`viewer_membership`: owner → `"owner"`, student → `"member"`, null → `"none"`). |
+| `room_filter_options() → jsonb` | Same hardening. The distinct non-null `subject`/`exam_track`/`language` values of public rooms only — private rooms never leak into a filter chip. |
+
+Five supporting indexes ride in the same migration — four on `rooms` (the
+public `(visibility, created_at desc, id desc)` keyset plus one per
+lower-cased filter column: `subject`, `exam_track`, `language`) and
+`room_messages (room_id, created_at desc)` for the activity scan — and no
+table grant changes: the functions only `select` through their definer.
+Read-only GETs are not rate-limited.
+
+---
+
 ## Rate limits (PR 10)
 
 One mechanism serves every throttled route: the `rate_limits` table

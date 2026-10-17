@@ -17,7 +17,12 @@ export type CreatedRoom = { id: string; name: string };
  */
 export async function createRoomViaUi(
   page: Page,
-  opts: { label: string; capacity?: number; visibility?: "public" | "private" },
+  opts: {
+    label: string;
+    capacity?: number;
+    visibility?: "public" | "private";
+    subject?: string;
+  },
 ): Promise<CreatedRoom> {
   const name = uniqueRoomName(opts.label);
   await page.goto("/rooms/new");
@@ -27,6 +32,9 @@ export async function createRoomViaUi(
   await page.locator("#capacity").fill(String(opts.capacity ?? 4));
   if (opts.visibility) {
     await page.locator("#visibility").selectOption(opts.visibility);
+  }
+  if (opts.subject) {
+    await page.locator("#subject").fill(opts.subject);
   }
   await page.getByRole("button", { name: /create room/i }).click();
   await page.waitForURL(/\/rooms\/[0-9a-f-]{36}$/);
@@ -38,11 +46,17 @@ export async function createRoomViaUi(
   return { id, name };
 }
 
-/** The discovery card for one room (the `article` around its heading). */
-export function roomCard(page: Page, roomName: string) {
+/**
+ * The discovery card for one room (the `article` around its heading). A room
+ * with a subject renders the heading's accessible name as "Name, Subject"
+ * (the title link's aria-label carries both), so pass the subject too when
+ * the fixture has one.
+ */
+export function roomCard(page: Page, roomName: string, subject?: string) {
+  const headingName = subject ? `${roomName}, ${subject}` : roomName;
   return page
     .getByRole("article")
-    .filter({ has: page.getByRole("heading", { name: roomName, exact: true }) });
+    .filter({ has: page.getByRole("heading", { name: headingName, exact: true }) });
 }
 
 /** Searches discovery for an exact room name (discovery lists public rooms). */
