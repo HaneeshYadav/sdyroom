@@ -1,6 +1,6 @@
 # PR 14 — AI quiz and flashcards from my documents
 
-**Status:** specification only — no GitHub PR exists.
+**Status:** in review — [PR #20](https://github.com/chanukyareddygopala07/sdyroom/pull/20).
 **Owner:** Dev A (OpenCode) · **Complexity:** Large · **Migration:** `0019_quiz_artifacts.sql`
 **Depends on:** PR 12 (ingestion), PR 13 (grounded-generation + citation pipeline to reuse)
 

@@ -63,6 +63,14 @@ export const SWEEP_LIMIT = { max: 6, windowSeconds: 60 } as const;
  */
 export const ASK_LIMIT = { max: 20, windowSeconds: 60 } as const;
 
+/**
+ * Generation calls (`POST /api/rooms/[id]/generate` and its `.../step`).
+ * One quiz or deck is two requests (create + one bounded step) and spends a
+ * full provider completion; 10/60s per room bounds a scripted generation
+ * loop while leaving a patient build session untouched.
+ */
+export const GENERATE_LIMIT = { max: 10, windowSeconds: 60 } as const;
+
 export function uploadUserKey(userId: string): string {
   return `upload:user:${userId}`;
 }
@@ -159,4 +167,12 @@ export function askKey(roomId: string, userId: string): string {
 
 export function askSpec(roomId: string, userId: string): RateLimitSpec {
   return { key: askKey(roomId, userId), ...ASK_LIMIT };
+}
+
+export function generateKey(roomId: string, userId: string): string {
+  return `generate:${roomId}:${userId}`;
+}
+
+export function generateSpec(roomId: string, userId: string): RateLimitSpec {
+  return { key: generateKey(roomId, userId), ...GENERATE_LIMIT };
 }

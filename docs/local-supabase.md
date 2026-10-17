@@ -126,6 +126,16 @@ RPCs (`ingest_begin`, `ingest_record_extraction`, `ingest_record_chunks`,
 `ai_usage_daily`, plus helpers) — every write to the three tables travels
 through those SECURITY DEFINER functions.
 
+`supabase/migrations/0019_quiz_artifacts.sql` adds AI quizzes and flashcards:
+three tables (`study_artifacts` with the ready/failed payload CHECKs,
+`quiz_attempts` as the immutable score ledger, `flashcard_reviews` as the
+per-user SM-2-lite schedule), three own/visible-row select policies with
+**no write policy anywhere**, and the six RPCs (`create_artifact`,
+`complete_artifact`, `fail_artifact`, `delete_artifact`, `record_attempt`,
+`review_card`) — every write to the three tables travels through those
+SECURITY DEFINER functions, and `select` on all three is column-scoped so a
+wildcard fails on privilege grounds.
+
 | Table | Key columns | Notes |
 | --- | --- | --- |
 | `profiles` | `id` → `auth.users`, `alias`, `exam_targets`, `notification_prefs`, `created_at` | No email, no auth metadata, no other PII. `alias` 1–32 chars, trimmed, unique on `lower(alias)` (case-insensitive, no `citext`). `exam_targets` is a `jsonb` array, default `'[]'`. `notification_prefs` (`0012`) is a `jsonb` object of per-category values from `all`/`mentions_and_invites`/`none` plus a `default` key (default `'{"default": "all"}'`), writable only through a narrow column-level `UPDATE` grant. |
@@ -143,6 +153,9 @@ through those SECURITY DEFINER functions.
 | `user_blocks` | `blocker_id` → `auth.users`, `blocked_id` → `auth.users`, `created_at`, PK `(blocker_id, blocked_id)`, CHECK `blocker_id <> blocked_id` | One-directional blocks (`0009`): visible to the blocker only, neither side notified. `SELECT` for `authenticated` (the `room_messages` SELECT policy filters on it) plus an own-row policy; writes are RPC-only. |
 | `rate_limits` | `key` (PK), `window_start`, `count` | Fixed-window counters for the shared limiter (`0010`). **Zero grants and zero policies for every role** — the only writer and reader is the `rate_limit_take` SECURITY DEFINER RPC, so a direct PostgREST access dies on `42501` before RLS is even consulted, and a hypothetical future grant would still be filtered to nothing by the policy-free table. |
 | `notifications` | `id`, `user_id` → `auth.users`, `type`, `payload` (jsonb), `read_at`, `created_at`, `room_id` → `rooms`, `dedupe_key` | One row per delivered event (`0012`). `type` is a closed CHECK enum (`invite_created`/`invite_accepted`/`member_removed`/`muted`/`moderation_resolved`/`report_resolved`/`resource_ready`/`ai_task_complete`/`system`); `payload` holds `{title, body, href}` and `href` is derived at read time, never trusted from storage. Partial unique index `(user_id, dedupe_key) where read_at is null and dedupe_key is not null` collapses unread duplicates; `user_id`/`room_id` cascade on delete. `SELECT`/`UPDATE (read_at)`/`DELETE` for `authenticated`, each under its own `user_id = auth.uid()` policy; **no `INSERT` for any role** — the only writers are the two SECURITY DEFINER producer RPCs. |
+| `study_artifacts` | `id`, `room_id` → `rooms`, `creator_id` → `auth.users`, `kind`, `status`, `error_code`, `difficulty`, `question_count`, `card_count`, `resource_ids`, `payload` (jsonb), `model`, `prompt_tokens`, `completion_tokens`, `created_at`, `completed_at` | One generated quiz or deck (`0019`). `kind` ∈ `quiz`/`deck`; `status` ∈ `generating`/`ready`/`failed`; `error_code` ∈ `no_documents_indexed`/`ai_provider_failed`/`ai_quota_exceeded`. Two shape CHECKs pair quiz↔`question_count` with deck↔`card_count` so counts and kind cannot drift, and a third ties `payload` presence to `status = 'ready'`; `payload` is null-or-object and, per `ready_payload_check`, present exactly when `status = 'ready'` — it carries the whole quiz/deck **including the answer key**, and `resource_ids` is the 1–25 pinned inputs. `select` is column-scoped (all but `prompt_tokens`/`completion_tokens`), so token accounting never leaves the database; **no write grant for any role** — inserts go through `create_artifact`, the flip to `ready`/`failed` through `complete_artifact`/`fail_artifact`. Indexes on `(room_id, kind, created_at desc)` and `(creator_id, created_at desc)`. |
+| `quiz_attempts` | `id`, `artifact_id` → `study_artifacts`, `user_id` → `auth.users`, `answers` (jsonb array), `score`, `total`, `correct` (jsonb array), `duration_ms`, `created_at` | The immutable score ledger (`0019`) — one row per submit, so retakes never overwrite. `answers` is the submitted indices, `correct` the per-question boolean, and `score`/`total` are computed by `record_attempt` against the stored key (a client can never write them). `duration_ms` 0–86 400 000 ms. `select` is column-scoped to the whole surface; **no write grant for any role**. Indexes on `(user_id, created_at desc)` and `(artifact_id, user_id)`. |
+| `flashcard_reviews` | `id`, `artifact_id` → `study_artifacts`, `user_id` → `auth.users`, `card_ordinal`, `grade`, `streak`, `ease`, `interval_days`, `last_reviewed_at`, `next_review_at` | The per-user SM-2-lite schedule (`0019`): `grade` ∈ `again`/`got_it`, `streak` ≥ 0, `ease` ≥ 1.3, `interval_days` ≥ 0, and `next_review_at` the next time the card is due. `unique (artifact_id, user_id, card_ordinal)` plus the `review_card` upsert means grading a card twice moves the schedule instead of stacking rows. `select` is column-scoped; **no write grant for any role**. Index on `(user_id, next_review_at)` for the due-cards query. |
 
 No sample rooms and no fabricated auth users are inserted by SQL: `supabase/seed.sql`
 is intentionally empty, and local test data is made only through the Auth API and the
@@ -208,6 +221,17 @@ citations, created_at — **no token or model columns**, so a wildcard `SELECT`
 fails on privilege grounds), zero write grants for any role, and execute on
 `record_qa` revoked from `public`/`anon` and granted only to `authenticated`.
 The table's single policy (below) is the second layer.
+
+`study_artifacts`, `quiz_attempts` and `flashcard_reviews` (`0019`) close the
+same way: revoke-first, column-scoped `SELECT` for `authenticated`, zero write
+grants for any role, and execute on `create_artifact`, `complete_artifact`,
+`fail_artifact`, `delete_artifact`, `record_attempt` and `review_card` revoked
+from `public`/`anon` and granted only to `authenticated`. The column scoping is
+what keeps the answer key's siblings honest: `prompt_tokens` and
+`completion_tokens` are granted for no verb, so a wildcard `SELECT` on
+`study_artifacts` is `insufficient_privilege` and token accounting never leaves
+the database — the same posture `study_qa` takes on its token/model columns.
+The three tables' policies (below) are the second layer.
 
 **No `UPDATE` or `DELETE` grant on `rooms` / `room_members` — and since `0008`
 that is a deliberate design, not an undeveloped flow.** Room edits and deletion go
@@ -289,6 +313,9 @@ rows.
 | `study_ai_documents`, `document_chunks` | `study_ai_documents_select_visible` / `document_chunks_select_visible` (`0013`) | the same audience as `study_resources`: your own files, plus files shared into rooms you are a member of right now — `is_resource_owner(...)` (a definer helper, because `study_resources.owner_id` carries no `SELECT` grant) OR a current `room_members` row. No insert/update/delete policy exists **and** no matching grant does either — two independent layers, so the state machine and the chunk table are RPC-only |
 | `ai_usage` | `ai_usage_select_own` (`0013`) | `user_id = auth.uid()` — a student reads only their own ledger rows; every insert travels through `ingest_record_chunk` |
 | `study_qa` | `study_qa_select_own` (`0018`) | own rows **and** a current `room_members` row for the row's room — a student reads only their own history, and it disappears the moment the seat does. No insert/update/delete policy exists **and** no matching grant does either: the table is RPC-only |
+| `study_artifacts` | `study_artifacts_select_member` (`0019`) | room members read the artifacts of their room, payload included (the quiz runner needs it); no insert/update/delete policy exists **and** no matching grant does either — the table is RPC-only |
+| `quiz_attempts` | `quiz_attempts_select_own` (`0019`) | own rows **and** a current `room_members` row for the artifact's room — a student reads only their own score rows, and they disappear with the seat. No insert/update/delete policy **and** no matching grant: `record_attempt` is the only writer |
+| `flashcard_reviews` | `flashcard_reviews_select_own` (`0019`) | own rows **and** a current `room_members` row for the artifact's room — a student reads only their own spacing state. No insert/update/delete policy **and** no matching grant: `review_card` is the only writer |
 | `realtime.messages` | `room_presence_select_member` / `room_presence_insert_member` (`0006`) | the whole of the private-channel gate for `room-presence-{uuid}` topics: `authenticated` only, extension must be `broadcast`/`presence`, and the uuid in the topic must match a current `room_members` row for `auth.uid()` — so a non-member (or an anonymous client) cannot join, cannot confirm a private room exists, and cannot read another room's roster. Realtime's authorization probes run as the caller inside a transaction that rolls back, so nothing is ever written |
 
 Storage objects have their own four policies (next section); they are not listed
@@ -547,7 +574,8 @@ Rate windows (published in `docs/API_CONTRACTS.md`, implemented in
 `lib/rate-limit/keys.ts`): upload 20/min per user and 10/min per target,
 delete 30/min, signed URL 120/min, sweep 5/min; reports 20/hour, blocks and
 mutes 30/hour, invitations 10/hour; AI ingest steps 30/min and AI ingest
-sweeps 6/min (`0013`/PR 12); asks 20/min per room+user (`0018`/PR 13). The limiter **fails open** by design
+sweeps 6/min (`0013`/PR 12); asks 20/min per room+user (`0018`/PR 13); generate
+and step 10/min per room+user (`0019`/PR 14). The limiter **fails open** by design
 (`lib/rate-limit/check.ts`): only an explicit `false` refuses, and a database
 hiccup is logged rather than turned into an outage.
 
@@ -621,6 +649,12 @@ select vector_dims(embedding)          -- after at least one ingest
 | `ai_usage_daily(p_user_id, p_room_id) → jsonb` | Today's `{ scope, used_bytes, used_tokens, limit_bytes (52428800), day_start }` for one scope; `p_user_id` must be the caller and a room scope requires membership (`not_found` otherwise). The same RPC `GET /api/ai/usage` reads and `ingest_record_chunk` enforces. |
 | `resource_owner_ids(p_resource_ids) → setof uuid` | The ownership signal pages need for the owner-only "Index now" button — `study_resources.owner_id` has no `SELECT` grant, so this definer helper returns exactly the subset the caller owns. |
 | `record_qa(p_room_id, p_conversation_id, p_question, p_answer, p_citations, p_model, p_prompt_tokens, p_completion_tokens, p_retrieval_tokens, p_retrieved_chunks) → jsonb` (`0018`) | The only insert path into `study_qa` (execute `authenticated` only): pins `user_id = auth.uid()`, re-checks room membership (`not_found`), validates the row, deduplicates a same-conversation/same-question row inside a 60-second window (returns the existing `{ qa_id, deduped: true, … }` instead of inserting), enforces the per-user daily chat-token cap (100 000, `ai_quota_exceeded`) against the same own-row `chat_tokens` sum the route pre-checks, and writes the `chat_tokens` (+ optional retrieval `embed_tokens`) ledger in the same transaction. Returns `{ qa_id, conversation_id, created_at, deduped, chat_used_today, chat_limit }`. |
+| `create_artifact(p_room_id, p_kind, p_difficulty, p_count, p_resource_ids) → jsonb` (`0019`) | The only insert path into `study_artifacts` (execute `authenticated` only): pins `creator_id = auth.uid()`, re-checks room membership, re-validates the kind/count/difficulty domain, and re-checks that every requested resource is accessible to the caller (room-shared in this room, or the caller's own personal file) and has a `ready` AI document — a forged resource id can never enter an artifact. Writes a `generating` row. Returns `{ id, kind, status, difficulty, question_count, card_count, created_at }`. |
+| `complete_artifact(p_artifact_id, p_payload, p_model, p_prompt_tokens, p_completion_tokens, p_retrieval_tokens) → jsonb` (`0019`) | Creator-only (a non-creator raises `not_creator`), idempotent once `ready` (returns `{ …, deduped: true }` with no second provider call). Validates the payload against the row's declared counts (a ready artifact always matches), enforces the per-user daily chat-token cap (100 000 — the same set `record_qa` sums; a breach flips the row to `failed` with `ai_quota_exceeded`), writes the `chat_tokens` (+ retrieval `embed_tokens`) ledger in the same transaction, then flips to `ready`. A malformed payload raises `validation` and leaves the row `generating` so `fail_artifact` (or a retry) decides its fate — a half-parsed artifact can never become ready. |
+| `fail_artifact(p_artifact_id, p_error_code) → jsonb` (`0019`) | Creator-only, idempotent. The honest terminal state for `no_documents_indexed` / `ai_provider_failed` / `ai_quota_exceeded`; a second call on a `ready` or already-`failed` row returns `{ …, deduped: true }`. |
+| `delete_artifact(p_artifact_id) → jsonb` (`0019`) | Creator-only; invisible (non-member or missing) is indistinguishable from missing (`not_found`), and a non-creator gets `not_creator`. Cascades `quiz_attempts` and `flashcard_reviews` via `ON DELETE CASCADE`. |
+| `record_attempt(p_artifact_id, p_answers, p_duration_ms) → jsonb` (`0019`) | The only insert path into `quiz_attempts` (execute `authenticated` only): pins `user_id = auth.uid()`, re-checks membership and `status = 'ready'`, validates the answers array against the stored question count (an out-of-range index is `validation`), and scores server-side against `payload->questions` — the client's answer array is advisory input only, and a tampered score field in a body is ignored because it is never read. Returns `{ id, score, total, correct, results, duration_ms, created_at }`, where `results` carries each question's `chosen`, `correct_index`, `explanation` and `citations` from the payload. |
+| `review_card(p_artifact_id, p_card_ordinal, p_grade) → jsonb` (`0019`) | The only write path into `flashcard_reviews` (execute `authenticated` only): pins `user_id = auth.uid()`, re-checks membership and `status = 'ready'`, validates the ordinal against the deck's card count and the grade against `again`/`got_it`, and computes the SM-2-lite schedule (`again` → streak 0, interval 0, next review +10 min, ease −0.2 floor 1.3; `got_it` → streak +1, interval 1/3/7/14/30 days by streak capped at 30, ease unchanged). Upserts on `(artifact_id, user_id, card_ordinal)` so grading again moves the schedule instead of stacking rows, and returns `{ next_review_at, interval_days, streak, due_count }` where `due_count` counts never-reviewed **or** overdue cards. |
 
 ## Verification performed
 
@@ -628,35 +662,26 @@ All against the local stack. Structural:
 
 ```bash
 npx supabase db lint --local        # exit 0: "No schema errors found"
-npx supabase db reset               # exit 0: applied 0001 … 0012
-npx supabase migration list --local # 0001 … 0012 present locally
+npx supabase db reset               # exit 0: applied 0001 … 0019
+npx supabase migration list --local # 0001 … 0019 present locally
 ```
 
 Observed from `pg_catalog` / `information_schema` on 127.0.0.1:54322:
 
-- RLS enabled on all fifteen tables: `profiles`, `rooms`, `room_members`,
-  `focus_sessions`, `study_goals`, `room_messages`, `study_resources`,
-  `room_invitations`, `moderation_reports`, `moderation_actions`,
-  `room_moderators`, `room_mutes`, `user_blocks`, `rate_limits`,
-  `notifications` (`relrowsecurity = t`).
-- 26 table policies on `public.*`, every one `to authenticated` (the 21st was
-  `room_invitations_select_addressed` from `0007`; `0009` added
-  `room_mutes_select_own` and `user_blocks_select_own` and re-created
-  `room_messages`' two policies in place, so the count moves 21 → 23;
-  **`0010` adds none** — `rate_limits` is closed by zero grants plus
-  zero policies instead — and `0012` adds the three `notifications`
-  own-row policies, 23 → 26); plus
-  the two `0006` policies on `realtime.messages` (`room_presence_select_member`
-  / `room_presence_insert_member`) and the 4 storage policies on
-  `storage.objects` for `study-resources` (`0005`'s three plus
-  `study_resources_objects_delete_room_owner` from `0008`)
-  — 0 policies for any role other than `authenticated`
-  across all of them. The presence policies are proven end to end by
-  `tests/integration/presence-policies.test.ts` (member probe accepted,
-  non-member / cross-room / anonymous / wrong-topic probes refused), the
-  invitation policies by `tests/integration/room-invitations.test.ts`, and
-  the moderation policies and grant freezes by
-  `tests/integration/room-moderation.test.ts`.
+- RLS enabled on all twenty-two `public` tables (`relrowsecurity = t`),
+  including the three `0019` quiz tables (`study_artifacts`, `quiz_attempts`,
+  `flashcard_reviews`).
+- 33 table policies on `public.*`, every one `to authenticated`; the `0019`
+  migration adds three select policies (`study_artifacts_select_member`,
+  `quiz_attempts_select_own`, `flashcard_reviews_select_own`) and, like `0013`/
+  `0018`, **no write policy anywhere**. Plus the two `0006` policies on
+  `realtime.messages` and the 4 storage policies on `storage.objects` for
+  `study-resources` — 0 policies for any role other than `authenticated`
+  across all of them.
+- 57 SECURITY DEFINER functions on `public`; the six `0019` RPCs
+  (`create_artifact`, `complete_artifact`, `fail_artifact`, `delete_artifact`,
+  `record_attempt`, `review_card`) are `prosecdef = t` with
+  `search_path = ''` and execute revoked from `public`/`anon`.
 - The five `0009` tables: zero table grants on `moderation_reports`,
   `moderation_actions` and `room_moderators` for every API role (verified:
   the only grants in `information_schema.role_table_grants` belong to
