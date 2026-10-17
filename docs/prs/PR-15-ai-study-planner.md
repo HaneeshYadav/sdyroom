@@ -1,8 +1,18 @@
 # PR 15 — AI study planner
 
-**Status:** specification only — no GitHub PR exists.
-**Owner:** Dev A (OpenCode) · **Complexity:** Large · **Migration:** `0015_study_plans.sql`
+**Status:** in review — implemented on `feat/ai-study-planner` (migration
+`0020_study_plans.sql`; the roadmap's `0015` number was stale and is updated).
+**Owner:** Dev A (OpenCode) · **Complexity:** Large · **Migration:** `0020_study_plans.sql`
 **Depends on:** PR 16 (analytics aggregates are the planner's inputs — hard gate, ordered 16 → 15), PR 14 (weak-area metadata + the pattern this PR copies; roadmap lists 14 and 16), PR 12 (provider + retrieval)
+
+> **Deviation from this spec, documented in `docs/API_CONTRACTS.md`:** PR 16
+> has not landed, so the signals are wired to the *merged* tables
+> (`study_goals`, `quiz_attempts`/`study_artifacts`) through
+> `lib/planner/signals.ts` instead of `analytics_me` — the spec's own hard-gate
+> wording ("must not merge without the signals wired") is satisfied by the
+> merged-table wiring, and the seam is unit-tested. The shift formula was
+> revised (see the "Shift remaining" section below and the API contract) so the
+> e2e line "'shift remaining' moves undone items" is reachable on a fresh plan.
 
 ---
 

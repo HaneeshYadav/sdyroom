@@ -1242,6 +1242,86 @@ is `insufficient_privilege`, the same posture as `study_qa`).
 
 ---
 
+## AI study planner (PR 15)
+
+Personal route (the room, if any, rides the body): session → strict Zod body
+(no identity fields) → per-scope rate limit → `createPlan` service probes (room
+access, document accessibility, daily chat quota) → `create_plan`, the table's
+only insert path, which re-validates the whole domain in the database. The
+returned `href` is `/planner?plan=<id>`; the client drives `POST …/step` to
+build it. Plans are RLS-scoped to their owner; a foreign or missing id is
+`404` (no existence oracle across users).
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `POST` | `/api/plans` | Start (or resume) the caller's plan; `201` with `{ id, status, exam_date, deduped, href }` |
+| `GET` | `/api/plans?status=` | The caller's own plans, newest first, optional `active\|generating\|failed\|archived` filter |
+| `GET` | `/api/plans/[planId]` | Full detail: plan row, items in schedule order, `plan_stats` progress, `item_count`, `days` |
+| `GET` | `/api/plans/[planId]?format=csv` (or `/<uuid>.csv`) | `text/csv` attachment with `date,kind,subject,task,est_minutes,done` |
+| `POST` | `/api/plans/[planId]/step` | One bounded generation step (idempotent while `generating`) |
+| `POST` | `/api/plans/[planId]/items/[itemId]/done` | Checkbox toggle; `done: boolean` |
+| `POST` | `/api/plans/[planId]/shift` | Deterministic shift of undone items from `from_date` forward |
+| `POST` | `/api/plans/[planId]/complete-day` | Mark every untouched item on `date` done |
+| `POST` | `/api/plans/[planId]/archive` | End the plan (also cancels an in-flight `generating` row) |
+
+### Shift formula (locked revision)
+
+`shift = max(0, diffDays(from_date, today))` applied to every undone item with
+`item_date >= from_date`; done items never move; a target past `exam_date` is
+clamped to the exam date (`past_exam_date` counts them). A repeat call from the
+same `from_date` re-applies the same advance — the UI confirm-guard and this
+note are the safety; `from_date >= today` is a no-op ("already on time"). The
+UI sends `from_date = min(earliestUndone, yesterday)` so a fresh plan shifts by
+one day and a behind plan catches up exactly.
+
+### Status model and error codes
+
+`generating → active | failed → archived` (one `active` and one `generating`
+row per user, enforced by partial unique indexes). `failed.error_code` is
+`ai_provider_failed` or `ai_quota_exceeded` (CHECK-constrained). Codes:
+`plan_already_active` 409 · `plan_not_active` 409 (done/shift/complete-day/step
+on a non-active plan) · `not_found` 404 (foreign or missing plan/item — the
+spec's `403 not_owner` is unreachable by design) · `room_not_member` 403 ·
+`ai_quota_exceeded` 403 · `rate_limited` 429 · `validation`/`invalid_json` 400 ·
+`plans_failed` 500. Rate limit: `plan:{roomId|personal}:{userId}` 10 / 60 s on
+POST and step only.
+
+### Internal contracts: the plan RPCs (0020)
+
+| RPC | Behaviour |
+| --- | --- |
+| `create_plan(user_id, exam_date, hours_per_day, topics, room_id, document_ids, regenerate) → jsonb` | The table's only insert path (execute `authenticated` only): pins `user_id = auth.uid()` (a forged id raises `not_owner`), re-probes room membership (visible non-member → `room_not_member`, invisible → `not_found`), validates the exam window (+1..+180 days) and hours (1..12) and topics (≤25 × ≤60 chars, may be empty), checks every `document_ids` entry is accessible (room-shared in this room, or the caller's own personal file), enforces the one-active/one-generating partial unique indexes (`23505` → `plan_already_active`; `regenerate: true` archives the active row first, in the same transaction), and adopts a pending `generating` row when one already exists (`deduped: true`). |
+| `generate_plan(plan_id, items jsonb, model, prompt_tokens, completion_tokens, retrieval_tokens) → jsonb` | Owner-only, idempotent. Re-validates the payload against the row's declared window (every `item_date` inside it, ≤180 items, ≤90 distinct dates, per-day total ≤ `floor(hours_per_day × 60) + 15`, kind ∈ {read, practice, review, mock, rest}, field ranges, and a `resource_id` that is not a pinned id raises `plan_invalid`). Writes `plan_items` and the `ai_usage` ledger in the same transaction, then flips to `active`. A malformed payload leaves the row `generating` — a half-parsed plan can never become active. |
+| `fail_plan(plan_id, error_code) → jsonb` | Owner-only, idempotent. Honest terminal state for `ai_provider_failed` / `ai_quota_exceeded`. |
+| `archive_plan(plan_id) → jsonb` | Owner-only, idempotent. Also cancels a pending `generating` row. |
+| `shift_plan(plan_id, from_date, updates jsonb) → jsonb` | Owner-only; the arithmetic lives in `lib/planner/shift.ts` (TypeScript) and this RPC re-validates every precomputed update inside the write: ownership, `status = 'active'`, `v_current >= from_date`, forward-only, `<= exam_date`, skips done items, `v_target = v_current` is a no-op. |
+| `mark_plan_item(item_id, done) → jsonb` | Owner-only (the item's plan's owner), idempotent; the first `done_at` timestamp is never rewritten. A foreign item id is `not_found`. |
+| `complete_plan_day(plan_id, date) → jsonb` | Owner-only; marks every untouched item on `date` done in one transaction; idempotent. |
+| `plan_stats(plan_id) → jsonb` | Owner-only (a foreign id raises `not_found`); the detail route's authority: the plan row's view columns plus `item_count`, `days`, and the `progress` object built by `plan_progress` — a plain SQL helper whose execute grant is revoked from `anon`/`authenticated` (postgres-only; the app never calls it directly). |
+
+Application roles hold no `INSERT`/`UPDATE`/`DELETE` grant on `study_plans` or
+`plan_items`; `SELECT` on `study_plans` is column-scoped to the view
+contract's columns (**`prompt_tokens`/`completion_tokens` are ungranted** — the
+same posture as `study_qa` and `study_artifacts`). Citations are rebuilt
+server-side from the pinned ids (`{title, href}`); a pinned-but-deleted or
+pinned-but-not-retrieved document is stripped, and a fabricated `resource_id`
+in the provider payload raises `plan_invalid`.
+
+### Deviations from the spec (documented)
+
+- **Signals**: the planner consumes the merged tables directly
+  (`study_goals`, and `quiz_attempts` with their embedded `study_artifacts`)
+  rather than `analytics_me` (PR 16 has not landed); the seam is
+  `lib/planner/signals.ts` and is unit-tested against the merged view.
+- **Shift arithmetic** lives in TypeScript (`lib/planner/shift.ts`) and is
+  re-validated inside `shift_plan` — the spec's "all in SQL" wording is
+  satisfied by the RPC's re-check, not by a closed-form SQL expression.
+- **`403 not_owner`** is unreachable: a foreign plan is `404` on every surface
+  (no existence oracle), and `create_plan` raises `not_owner` only when a
+  caller forges `user_id` in the RPC body — a path no route exposes.
+
+---
+
 ## Rate limits (PR 10)
 
 One mechanism serves every throttled route: the `rate_limits` table
@@ -1284,6 +1364,7 @@ and proceeds only while the take returns `true`.
 | `POST /api/ai/ingest/sweep` (PR 12, maintenance — one sweep advances many rows) | `sweep:user:{userId}` | 6 / 60 s |
 | `POST /api/rooms/[id]/ask` (PR 13, one full RAG pass per question) | `ask:{roomId}:{userId}` | 20 / 60 s |
 | `POST /api/rooms/[id]/generate` · `POST …/generate/[artifactId]/step` (PR 14, each one full generation pass) | `generate:{roomId}:{userId}` | 10 / 60 s |
+| `POST /api/plans` · `POST /api/plans/[planId]/step` (PR 15, each one full generation pass) | `plan:{roomId\|personal}:{userId}` | 10 / 60 s |
 
 These numbers are part of the contract (`lib/rate-limit/keys.ts` is the
 implementation mirror); change both together. The per-user/per-target split on

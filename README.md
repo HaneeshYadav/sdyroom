@@ -77,6 +77,10 @@ Level Security, Storage, Realtime).
 -  AI quizzes and flashcards: generated revision quizzes and flashcard decks
   over your indexed documents, server-side scoring, and a spaced-repetition
   schedule (PR 14)
+-  AI study planner: a personal day-by-day plan built from your exam date,
+  hours and topics — grounded in your indexed room documents with real
+  citations, plus deterministic shift / mark-done / regenerate adjustments that
+  never touch the AI (PR 15)
 -  Member safety: reports, one-way blocks, mutes, member removal, owner-appointed
   room moderators, and a moderation inbox that never shows the reporter
 - Light and dark themes
@@ -94,8 +98,7 @@ The ordered plan lives in [`docs/PR_ROADMAP.md`](docs/PR_ROADMAP.md) and
 [`docs/milestones.md`](docs/milestones.md); highlights:
 
 - Notifications (PR 11)
-- AI study assistance — quizzes and flashcards (PR 14, shipped), plus a study
-  planner and analytics (PRs 15–16)
+- AI analytics (PR 16)
 - Richer room discovery (PR 17)
 - Production hardening — security headers/CSP, monitoring, backups, load testing
   (PR 18)

@@ -40,7 +40,10 @@ describe("NotificationRow", () => {
   });
 
   it("exposes an exact machine-readable timestamp next to the relative one", () => {
-    const created = "2026-10-10T10:00:00.000000+00:00";
+    // A recent timestamp, not a pinned date: formatRelativeTime only renders
+    // the "… ago" form within its relative window, so a hard-coded old date
+    // would silently age out of the assertion.
+    const created = new Date(Date.now() - 5 * 60_000).toISOString();
     render(<NotificationRow notification={notification({ created_at: created })} />);
 
     const time = document.querySelector("time");

@@ -16,6 +16,7 @@
 import type { CompleteInput, CompleteResult, EmbedResult, AiProvider } from "../provider";
 import { estimateTokens } from "../tokens";
 import { AI_EMBEDDING_DIMENSIONS } from "../types";
+import { addDaysIso } from "@/lib/planner/dates";
 
 export const MOCK_EMBED_MODEL = "mock-embedding-1536";
 export const MOCK_CHAT_MODEL = "mock-chat-1";
@@ -79,6 +80,146 @@ export function mockGenerationCompletion(userMessage: string): string | null {
   return mode === "quiz" ? mockQuizJson(count) : mockDeckJson(count);
 }
 
+/**
+ * Study-plan requests carry the `<plan …>` marker plus `<doc id … />` rows
+ * (see `lib/ai/prompts/plan.ts`). The mock answers with a strict,
+ * schema-valid plan — deterministic and shaped to clear both the TS gate
+ * (`lib/planner/validate.ts`) and `generate_plan`'s SQL checks: dates stay
+ * inside the window, at most 90 distinct days / 180 items, and no day
+ * exceeds the marker's `budget_minutes` (even a 1-hour plan's 75-minute
+ * budget is honoured: the heaviest day is 70).
+ */
+const PLAN_MARKER =
+  /<plan today="(\d{4}-\d{2}-\d{2})" exam_date="(\d{4}-\d{2}-\d{2})" hours_per_day="([\d.]+)" budget_minutes="(\d+)" days="(\d+)"/;
+const DOC_ROW = /<doc id="([0-9a-fA-F-]{36})" title="([^"]*)"/g;
+
+type MockPlanDayItem = {
+  date: string;
+  subject: string | null;
+  task: string;
+  estimated_minutes: number;
+  kind: "read" | "practice" | "review" | "mock" | "rest";
+  resource_id: string | null;
+  citation: { title: string; href: string } | null;
+};
+
+export function mockPlanCompletion(userMessage: string): string | null {
+  const match = userMessage.match(PLAN_MARKER);
+  if (!match) {
+    return null;
+  }
+  const today = match[1];
+  const examDate = match[2];
+  const budgetMinutes = Number.parseInt(match[4], 10);
+  const windowDays = Number.parseInt(match[5], 10);
+  if (!Number.isInteger(budgetMinutes) || budgetMinutes < 1) {
+    return null;
+  }
+  if (!Number.isInteger(windowDays) || windowDays < 1) {
+    return null;
+  }
+
+  const docs: { id: string; title: string }[] = [];
+  for (const row of userMessage.matchAll(DOC_ROW)) {
+    docs.push({ id: row[1], title: row[2] || "Untitled document" });
+  }
+
+  const topicsLine = userMessage.match(/^Topics: (.+)$/m);
+  const topics = topicsLine
+    ? topicsLine[1].split(";").map((topic) => topic.trim()).filter((topic) => topic.length > 0)
+    : [];
+
+  const dayCount = Math.min(windowDays, 90);
+  const items: MockPlanDayItem[] = [];
+  const subjectFor = (index: number): string | null =>
+    topics.length > 0 ? topics[index % topics.length] : null;
+
+  for (let day = 0; day < dayCount; day += 1) {
+    const date = addDaysIso(today, day);
+    const lastDay = day === dayCount - 1;
+
+    if (lastDay) {
+      items.push({
+        date,
+        subject: subjectFor(day),
+        task: "Demo mode: full-length mock exam under test conditions.",
+        estimated_minutes: Math.min(60, budgetMinutes),
+        kind: "mock",
+        resource_id: null,
+        citation: null,
+      });
+      continue;
+    }
+    if ((day + 1) % 7 === 0) {
+      items.push({
+        date,
+        subject: null,
+        task: "Demo mode: rest day — light recap only, protect the streak.",
+        estimated_minutes: Math.min(15, budgetMinutes),
+        kind: "rest",
+        resource_id: null,
+        citation: null,
+      });
+      continue;
+    }
+    if (day % 2 === 0 && docs.length > 0) {
+      const doc = docs[day % docs.length];
+      items.push({
+        date,
+        subject: subjectFor(day),
+        task: "Demo mode: read the assigned document section and take notes.",
+        estimated_minutes: Math.min(25, budgetMinutes),
+        kind: "read",
+        resource_id: doc.id,
+        citation: { title: doc.title, href: "/resources" },
+      });
+      const remaining = budgetMinutes - Math.min(25, budgetMinutes);
+      if (remaining >= 45) {
+        items.push({
+          date,
+          subject: subjectFor(day),
+          task: "Demo mode: worked practice problems on today's topic.",
+          estimated_minutes: 45,
+          kind: "practice",
+          resource_id: null,
+          citation: null,
+        });
+      }
+      continue;
+    }
+    items.push({
+      date,
+      subject: subjectFor(day),
+      task: "Demo mode: worked practice problems on today's topic.",
+      estimated_minutes: Math.min(45, budgetMinutes),
+      kind: "practice",
+      resource_id: null,
+      citation: null,
+    });
+    if (budgetMinutes - Math.min(45, budgetMinutes) >= 20) {
+      items.push({
+        date,
+        subject: subjectFor(day),
+        task: "Demo mode: spaced review of earlier notes and missed items.",
+        estimated_minutes: 20,
+        kind: "review",
+        resource_id: null,
+        citation: null,
+      });
+    }
+  }
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  const summary = topics.length > 0
+    ? `Demo mode: ${dayCount}-day plan covering ${topics.slice(0, 5).join(", ")} before the ${examDate} exam.`
+    : `Demo mode: ${dayCount}-day plan leading up to the ${examDate} exam.`;
+
+  return JSON.stringify({ summary: summary.slice(0, 300), items });
+}
+
 /** FNV-1a — tiny, stable, and good enough to seed per-text vectors. */
 function fnv1a(text: string): number {
   let hash = 0x811c9dc5;
@@ -137,8 +278,9 @@ export const mockProvider: AiProvider = {
       .find((message) => message.role === "user")
       ?.content
       ?? "";
-    const generation = mockGenerationCompletion(userMessage);
-    const text = generation ?? MOCK_COMPLETION;
+    const plan = mockPlanCompletion(userMessage);
+    const generation = plan ?? mockGenerationCompletion(userMessage);
+    const text = plan ?? generation ?? MOCK_COMPLETION;
 
     // Estimated usage mirrors a real call (prompt + completion) so later
     // consumers of `tokens` see realistic numbers even in demo mode.
