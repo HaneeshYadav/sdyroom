@@ -500,7 +500,8 @@ Working log: what has landed, what each milestone still owes.
   the RPCs accept them; the emitting features do not exist yet), and the
   settings-page mount for the preferences form — it lives on the inbox page
   until PR 20 lands, unchanged and ready to move.
-- **AI milestones V–VII are foundation ready (PR 12).** The provider
+- **AI milestones V–VII: the foundation landed in PR 12, and VI + VII have
+  shipped.** The provider
   abstraction (`lib/ai/config.ts` + OpenAI-compatible and mock providers,
   `AI_*` env rules, demo-mode banner), the ingestion pipeline
   (`0013_ai_documents.sql` — pgvector, the `pending → extracting → chunking →
@@ -511,9 +512,15 @@ Working log: what has landed, what each milestone still owes.
   has shipped (PR 13)**: room-scoped questions over indexed documents with
   real citations, an append-only per-user history (`0018_qa_history.sql`,
   `record_qa`), a per-user daily chat-token cap, injection-hardened prompts
-  and a `/rooms/[id]/ask` page. The features that remain belong to the PRs
-  that own them: **V** study materials → RAG, and **VII** AI quiz/flashcards
-  (PR 14) and the AI planner (PR 15) — each consumes `retrieve()` and ships
-  its own UI, endpoints and tests. With no provider key configured the whole
-  pipeline runs on the mock provider, so every milestone above can be
+  and a `/rooms/[id]/ask` page. **VII "AI quizzes and flashcards" has shipped
+  (PR 14)**: generated quizzes and flashcard decks over indexed documents, an
+  artifact store (`0019_quiz_artifacts.sql`) whose payload holds the answer
+  key server-side, server-side deterministic scoring (`record_attempt`), a
+  per-user SM-2-lite review schedule (`review_card` / `flashcard_reviews`),
+  the resumable one-step generation model, injection-hardened generation
+  prompts and `/rooms/[id]/generate`, `/quizzes/[id]` and `/decks/[id]` pages.
+  The features that remain belong to the PRs that own them: **V** study
+  materials → RAG, and the AI planner (PR 15) — each consumes `retrieve()` and
+  ships its own UI, endpoints and tests. With no provider key configured the
+  whole pipeline runs on the mock provider, so every milestone above can be
   developed and tested without secrets.

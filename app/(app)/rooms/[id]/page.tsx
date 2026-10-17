@@ -1,5 +1,6 @@
 import { FocusTimer } from "@/components/focus-timer";
 import { GoalsPanel } from "@/components/goals-panel";
+import { ArtifactList } from "@/components/ai/artifact-list";
 import { ModerationInbox } from "@/components/moderation-inbox";
 import { ResourceLibrary } from "@/components/resources/resource-library";
 import { RoomChat } from "@/components/room-chat";
@@ -8,6 +9,7 @@ import { RoomRoster } from "@/components/room-roster";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { countReadyDocuments } from "@/lib/ai/ask";
+import { listArtifacts } from "@/lib/ai/generate";
 import { listMessages } from "@/lib/chat/queries";
 import { FocusSessionError } from "@/lib/focus/sessions";
 import { getFocusWorkspace } from "@/lib/focus/workspace";
@@ -84,7 +86,7 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
 
   // Membership is already proven by the workspace read above, so the library
   // query here is simply RLS applying room membership to the same viewer.
-  const [goals, { messages }, resources, quota, readyDocuments] =
+  const [goals, { messages }, resources, quota, readyDocuments, artifacts] =
     await Promise.all([
       listGoals(supabase, parsedRoomId.data),
       listMessages(supabase, {
@@ -114,6 +116,15 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
       // membership and the API re-checks readiness, so this count is only
       // ever used to disable-and-explain, never to authorize.
       countReadyDocuments(supabase, parsedRoomId.data),
+      // Display-only library of generated quizzes and decks; a listing
+      // failure hides the section, it never fails the workspace.
+      listArtifacts(supabase, {
+        roomId: parsedRoomId.data,
+        viewerId,
+      }).catch((error: unknown) => {
+        console.error("[rooms/page] artifact list failed:", error);
+        return [];
+      }),
     ]);
   const { room, member_count, viewer_role } = workspace;
 
@@ -225,6 +236,23 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
                 Ask my notes
               </Button>
             )}
+            {/* Same disabled-and-explained gate as ask: the generator needs
+                at least one indexed document to ground anything in. */}
+            {readyDocuments > 0 ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/rooms/${room.id}/generate`}>Quizzes &amp; decks</Link>
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled
+                title="Index at least one document in Resources first."
+                aria-label="Quizzes and decks (unavailable — index a document first)"
+              >
+                Quizzes &amp; decks
+              </Button>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -309,6 +337,15 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
         level={2}
         heading="Resources"
         description="Files shared with this room. Every member can open them; only the uploader can delete them."
+      />
+
+      {/* Keyed per room so a room switch cannot show the previous room's
+          generated quizzes while the new request is in flight. */}
+      <ArtifactList
+        key={`artifacts-${room.id}`}
+        roomId={room.id}
+        artifacts={artifacts}
+        headingLevel={2}
       />
     </section>
   );

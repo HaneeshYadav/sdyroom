@@ -1063,6 +1063,185 @@ chat_limit }`. Application roles hold no `INSERT`/`UPDATE`/`DELETE` grant on
 
 ---
 
+## AI quizzes and flashcards (PR 14)
+
+A member generates a revision quiz or a flashcard deck from the room's (or
+their own personal) indexed documents. One artifact row is one generated item;
+its answer key lives server-side in the `payload`, the client can never write
+it, and a quiz is scored by the database — a forged `score` in a request body
+is ignored because the schema does not read one.
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `POST` | `/api/rooms/[id]/generate` | Start one quiz or deck build (creates a `generating` artifact) |
+| `POST` | `/api/rooms/[id]/generate/[artifactId]/step` | Advance one bounded generation step (retrieve → complete → validate → `complete_artifact`) |
+| `GET` | `/api/rooms/[id]/artifacts?kind=` | The room's generated quizzes/decks, newest first |
+| `GET` | `/api/rooms/[id]/artifacts/[artifactId]` | One artifact with its full payload |
+| `DELETE` | `/api/rooms/[id]/artifacts/[artifactId]` | Creator only; cascades attempts and review rows |
+| `POST` | `/api/rooms/[id]/quizzes/[artifactId]/attempts` | Submit one quiz attempt (server-scored) |
+| `GET` | `/api/rooms/[id]/quizzes/[artifactId]/attempts` | The caller's own attempts, newest first |
+| `POST` | `/api/rooms/[id]/decks/[artifactId]/review` | Grade one flashcard (SM-2-lite schedule) |
+| `GET` | `/api/rooms/[id]/decks/[artifactId]/due` | The caller's own review state for every card + `due_count` |
+
+The resumable step model is the one PR 12's ingest established: a build
+survives a dropped connection without an in-memory task, and a second step
+after `ready`/`failed` is idempotent (`deduped: true`, no second provider
+call). All nine routes are session-gated and membership-proven (a non-member
+gets the same `404` as a missing room). The step route is additionally
+creator-only (a non-creator probing a step gets `403 not_creator` and never
+learns the artifact's status). The pipeline is `lib/ai/generate.ts`, over the
+same `retrieve()` PR 13 uses; with no `AI_*` key the mock provider emits a
+deterministic payload and the UI shows the demo banner.
+
+### `POST /api/rooms/[id]/generate`
+
+Strict body (snake_case, `flashcards` is the user-facing alias of the stored
+kind `deck`):
+
+```json
+{ "mode": "quiz", "difficulty": "medium", "count": 10, "resource_ids": ["…"], "question_types": ["mcq", "tf"] }
+```
+
+`difficulty` (`easy`|`medium`|`hard`) and `count` (quiz: 5/10/15/20, deck:
+10/20/40) are required; `resource_ids` (1–25 UUIDs) and `question_types`
+(≥1 of `mcq`/`tf`) are optional. Unknown fields are `400 validation`.
+A `resource_ids` entry that is forged, foreign or not-ready pins the whole
+request to `409 no_documents_indexed` (the app cannot distinguish forged
+from unindexed, and a `404` would be an existence oracle) — no artifact row
+is written. An empty selection means the whole ready set.
+
+**201** `{ "artifact": { "id", "kind", "status": "generating", "difficulty", "question_count", "card_count", "created_at", "href" } }`.
+The client then drives `step` until the artifact is `ready` or `failed`.
+
+| Status | Code | Cause |
+| --- | --- | --- |
+| 400 | `validation` / `invalid_json` | Bad body field, unknown field, malformed JSON, bad room id |
+| 401 | `unauthenticated` | No session (taken before the rate limit and the body) |
+| 403 | `ai_quota_exceeded` | Per-user daily chat-token cap (100 000) would be exceeded |
+| 404 | `not_found` | Room missing or the caller is not a member |
+| 409 | `no_documents_indexed` | A requested resource id is forged/foreign, or has no `ready` document |
+| 429 | `rate_limited` | 10 generate+step calls per 60 s per room+user (`Retry-After: 60`) |
+| 500 | `generate_failed` | Unexpected failure; no SQL detail leaks |
+| 502 | `ai_provider_failed` | Provider or retrieval failure (no mock fallback when a real provider is configured) |
+
+### `POST /api/rooms/[id]/generate/[artifactId]/step`
+
+No body. One bounded step: re-check creator → `retrieve()` over the pinned
+resource ids → prompt (untrusted excerpts in the user message only, PR-13
+discipline) → provider completion → parse-validate (`lib/ai/quiz/validate.ts`)
+→ `complete_artifact`. Malformed model output fails the artifact with
+`ai_provider_failed` and answers 502 — never a `ready` row.
+
+**200** `{ "status": "ready" | "failed", "question_count"?, "card_count"?, "model", "provider", "error_code"?, "deduped" }`.
+`deduped: true` means the artifact was already terminal and no work ran.
+
+| Status | Code | Cause |
+| --- | --- | --- |
+| 401 | `unauthenticated` | No session |
+| 403 | `not_creator` / `ai_quota_exceeded` | Non-creator probing a step, or the chat cap is spent |
+| 404 | `not_found` | Room/artifact missing, or the caller is not a member |
+| 409 | `no_documents_indexed` | A pinned document is no longer `ready` |
+| 429 | `rate_limited` | Same 10/60 s generate window |
+| 500 | `generate_failed` | Unexpected failure |
+| 502 | `ai_provider_failed` | Provider or retrieval failure, or malformed model output |
+
+### `GET /api/rooms/[id]/artifacts?kind=`
+
+`?kind=quiz|deck` optional. **200** `{ "artifacts": [{ "id", "kind", "status", "error_code", "difficulty", "question_count", "card_count", "created_at", "href", "is_creator" }], "has_more": false }` —
+`is_creator` lets the UI show delete/regenerate affordances only to the
+artifact's owner. Reads are deliberately unthrottled (bounded by pagination).
+`400 validation` (bad `kind`) · `401` · `404` · `500 artifacts_failed`.
+
+### `GET /api/rooms/[id]/artifacts/[artifactId]`
+
+**200** `{ "artifact": { …summary, "payload", "model", "resource_ids" } }` —
+the full payload for a member; other users' attempt results are never
+included (attempts are own-row only and this route does not read them).
+`401` · `404` · `500 artifacts_failed`.
+
+### `DELETE /api/rooms/[id]/artifacts/[artifactId]`
+
+Creator only. **200** `{ "deleted": true }`; attempts and review rows cascade
+inside the database. `401` · `403 not_creator` · `404` ·
+`500 artifacts_failed`.
+
+### `POST /api/rooms/[id]/quizzes/[artifactId]/attempts`
+
+Strict body `{ "answers": [0…3 | -1], "duration_ms"? }` — `answers` holds the
+chosen option index per question (`-1` = unanswered), length must equal the
+stored question count, and `duration_ms` is 0–86 400 000. The body carries no
+`score`: scoring is deterministic and server-side (`record_attempt` compares
+against the stored answer key); a forged score field is ignored because the
+schema does not allow one. Unlimited retakes — every submit is its own
+immutable row.
+
+**201** `{ "attempt": { "id", "score", "total", "correct", "results", "duration_ms", "created_at" } }` —
+`results` carries each question's `chosen`, `correct_index`, `explanation`
+and `citations` from the payload (the client never supplies any of it).
+
+| Status | Code | Cause |
+| --- | --- | --- |
+| 400 | `validation` / `invalid_json` | Bad answers length/index, bad duration, malformed JSON |
+| 401 | `unauthenticated` | No session |
+| 404 | `not_found` | Quiz/artifact missing, or the caller is not a member |
+| 409 | `artifact_not_ready` | Not a `ready` quiz |
+| 500 | `attempts_failed` | Unexpected failure |
+
+### `GET /api/rooms/[id]/quizzes/[artifactId]/attempts`
+
+The caller's own attempts, newest first (own-row RLS — nobody else's results
+ever appear). **200** `{ "attempts": [{ "id", "score", "total", "correct", "duration_ms", "created_at" }] }` ·
+`401` · `404` · `500 attempts_failed`.
+
+### `POST /api/rooms/[id]/decks/[artifactId]/review`
+
+Strict body `{ "card_ordinal": 0, "grade": "again" | "got_it" }`. The
+SM-2-lite schedule is computed inside `review_card` (0019) — the database is
+the authority — and one row per (user, card) means grading the same card
+again moves the schedule instead of stacking rows.
+
+**200** `{ "next_review_at", "interval_days", "streak", "due_count" }`.
+`again` → streak 0, interval 0, next review +10 minutes, ease −0.2 (floor
+1.3); `got_it` → streak +1 and interval 1/3/7/14/30 days by streak (capped
+at 30), ease unchanged. `due_count` counts never-reviewed **or** overdue
+cards, so grading "again" drops the card out of the due set for the next 10
+minutes.
+
+| Status | Code | Cause |
+| --- | --- | --- |
+| 400 | `validation` / `invalid_json` | Bad ordinal (outside `card_count`), bad grade, malformed JSON |
+| 401 | `unauthenticated` | No session |
+| 404 | `not_found` | Deck/artifact missing, or the caller is not a member |
+| 409 | `artifact_not_ready` | Not a `ready` deck |
+| 500 | `review_failed` | Unexpected failure |
+
+### `GET /api/rooms/[id]/decks/[artifactId]/due`
+
+The caller's own review state for every card plus how many are due right now
+(never reviewed, or `next_review_at` in the past). Own-row RLS: another
+member's schedule never appears. Reads are unthrottled.
+
+**200** `{ "cards": [{ "ordinal", "front", "back", "citations", "grade", "streak", "next_review_at", "due" }], "due_count" }` ·
+`401` · `404` · `409 artifact_not_ready` · `500 review_failed`.
+
+### Internal contracts: the artifact RPCs (0019)
+
+| RPC | Behaviour |
+| --- | --- |
+| `create_artifact(room_id, kind, difficulty, count, resource_ids) → jsonb` | The table's only insert path (execute `authenticated` only): pins `creator_id = auth.uid()`, re-checks membership and that every requested resource is accessible (room-shared in this room, or the caller's own personal file) and `ready`, validates the kind/count/difficulty domain, and writes a `generating` row. A forged resource id can never enter an artifact. |
+| `complete_artifact(artifact_id, payload, model, prompt_tokens, completion_tokens, retrieval_tokens) → jsonb` | Creator-only, idempotent (`deduped` once `ready`). Validates the payload against the row's declared counts (a ready artifact always matches), enforces the per-user daily chat-token cap (100 000 — the same set `record_qa` sums; a breach flips the row to `failed` with `ai_quota_exceeded`), writes the `chat_tokens` (+ retrieval `embed_tokens`) ledger in the same transaction, then flips to `ready`. A malformed payload raises `validation` and leaves the row `generating` — a half-parsed artifact can never become ready. |
+| `fail_artifact(artifact_id, error_code) → jsonb` | Creator-only, idempotent. Honest terminal state for `no_documents_indexed` / `ai_provider_failed` / `ai_quota_exceeded`. |
+| `delete_artifact(artifact_id) → jsonb` | Creator-only; invisible (non-member/missing) is indistinguishable from missing (`404`); cascades attempts + reviews. |
+| `record_attempt(artifact_id, answers, duration_ms) → jsonb` | The only insert path into `quiz_attempts` (execute `authenticated` only): pins `user_id = auth.uid()`, re-checks membership and `status = 'ready'`, validates the answers array against the stored question count, and scores server-side against the payload's answer key. The response carries the per-question explanations and citations from the payload, so the client never supplies any of it. |
+| `review_card(artifact_id, card_ordinal, grade) → jsonb` | The only write path into `flashcard_reviews` (execute `authenticated` only): pins `user_id = auth.uid()`, re-checks membership and `status = 'ready'`, validates ordinal and grade, computes the SM-2-lite schedule above, upserts on `(artifact_id, user_id, card_ordinal)`, and returns the row plus the live `due_count`. |
+
+Application roles hold no `INSERT`/`UPDATE`/`DELETE` grant on any of the three
+tables; `SELECT` is column-scoped (the artifact summary plus payload/model —
+**`prompt_tokens`/`completion_tokens` are ungranted**, so a wildcard `SELECT`
+is `insufficient_privilege`, the same posture as `study_qa`).
+
+---
+
 ## Rate limits (PR 10)
 
 One mechanism serves every throttled route: the `rate_limits` table
@@ -1104,6 +1283,7 @@ and proceeds only while the take returns `true`.
 | `POST /api/ai/ingest/[resourceId]` (PR 12, one bounded step per call) | `ingest:user:{userId}` | 30 / 60 s |
 | `POST /api/ai/ingest/sweep` (PR 12, maintenance — one sweep advances many rows) | `sweep:user:{userId}` | 6 / 60 s |
 | `POST /api/rooms/[id]/ask` (PR 13, one full RAG pass per question) | `ask:{roomId}:{userId}` | 20 / 60 s |
+| `POST /api/rooms/[id]/generate` · `POST …/generate/[artifactId]/step` (PR 14, each one full generation pass) | `generate:{roomId}:{userId}` | 10 / 60 s |
 
 These numbers are part of the contract (`lib/rate-limit/keys.ts` is the
 implementation mirror); change both together. The per-user/per-target split on
@@ -1116,7 +1296,7 @@ concentrate all of it on one room or library.
 
 | Concern | Status |
 | --- | --- |
-| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10 + PR 12): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes, invitations, and the AI ingest/sweep routes. Session-gated pages and paginated reads are deliberately unthrottled (including `GET /api/ai/usage`); PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
+| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10 + PR 12 + PR 13 + PR 14): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes, invitations, the AI ingest/sweep routes, ask, and generate/step. Session-gated pages and paginated reads are deliberately unthrottled (including `GET /api/ai/usage`, artifact/attempt/due listings); PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
 | Malware scanning | **Not implemented and not claimed.** Only signature/UTF-8 validation runs. |
 | Metadata editing (`PATCH`) | Not exposed. The `UPDATE` grant and policy exist and are exercised by the integration suite so the column set is provably narrow; no UI or endpoint needs renaming yet. |
 | Public/permanent file URLs | Never. Only short-lived signed URLs. |
@@ -1126,4 +1306,4 @@ concentrate all of it on one room or library.
 | Invitations to public rooms | Refused (`409 room_public`): `join_room` already handles public entry. |
 | Global `/moderation` dashboard | **Not built.** Reports are room-scoped and authorization is per-room; the moderation inbox mounted in the room workspace is the product contract (PR 09's reconciliation). |
 | Message removal / soft-hide | **Never in v1.** `room_messages` keeps no `UPDATE`/`DELETE` grant and no hidden columns — moderators act at the member level (mute/remove) and reports carry the context. |
-| AI summaries / quizzes | Explicitly out of scope for this milestone. |
+| AI summaries | Explicitly out of scope for this milestone. |
