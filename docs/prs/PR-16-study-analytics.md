@@ -1,8 +1,25 @@
 # PR 16 — Study analytics (personal + room insights)
 
-**Status:** specification only — no GitHub PR exists.
-**Owner:** Dev A (OpenCode) · **Complexity:** Medium · **Migration:** `0014_analytics_views.sql`
+**Status:** in review — GitHub PR #22, implemented on `feat/study-analytics`
+(migration `0021_analytics.sql`; the roadmap's `0014` number was stale and is
+updated).
+**Owner:** Dev A (OpenCode) · **Complexity:** Medium · **Migration:** `0021_analytics.sql`
 **Depends on:** PR 14 (`quiz_attempts` is a primary input — hard gate), PR 12 (session/ingest ledgers exist); soft: 15 consumes these aggregates afterwards
+
+> **Deviations from this spec, documented in the migration header and
+> `docs/API_CONTRACTS.md`:** the migration is `0021_analytics.sql` (the
+> pre-assigned `0014` would apply before `quiz_attempts`/`flashcard_reviews`/
+> `plan_items` exist on a fresh `supabase db reset`); room `active_members`
+> counts distinct members with an attributable action in the window (plus the
+> owner when ≥1 session ran) because `focus_sessions` carries no member
+> identity by `0003`'s design — counts only, never a user id or alias;
+> `p_user_id` on `analytics_me` is coerced to the caller (a foreign id behaves
+> as self) rather than raising, and no route ever passes one; the UI adds one
+> additive "Plan vs actual" section and a `range-switcher` component beyond
+> this spec's component list; ranges switch through `router.replace("?range=")`
+> with a server refetch rather than `router.refresh()`; and the page defaults
+> an absent `range` to `7d` while the API still answers `400` for a missing or
+> unknown value (an explicit-but-unknown range on the page is `notFound()`).
 
 ---
 
@@ -125,7 +142,8 @@ Implementation rules:
 
 ### Database work
 
-`supabase/migrations/0014_analytics_views.sql`:
+`supabase/migrations/0021_analytics.sql` (was `0014` in this spec — renumbered,
+see the header note):
 
 - RPCs (SECURITY DEFINER, `search_path = ''`, execute revoked from
   `public`/`anon`, granted to `authenticated`) — one per panel:
@@ -265,7 +283,7 @@ Positive guarantees:
 ### Files / modules likely affected
 
 ```
-supabase/migrations/0014_analytics_views.sql              (new)
+supabase/migrations/0021_analytics.sql                  (new)
 app/api/analytics/me/route.ts                            (new)
 app/api/analytics/me.csv/route.ts  → app/api/analytics/me/route.ts?format=csv (new)
 app/api/analytics/rooms/[id]/route.ts                    (new)

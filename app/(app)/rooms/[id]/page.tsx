@@ -259,6 +259,15 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
             <Button asChild size="sm" variant="outline">
               <Link href={`/planner?room=${room.id}`}>Study plan</Link>
             </Button>
+            {/* Owner/moderator only (PR 16) — same convenience rule as room
+                settings: the analytics page and its RPC re-prove the right
+                server-side, so a member who types the URL gets the same 404
+                as a stranger. */}
+            {moderation.can_moderate && (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/rooms/${room.id}/analytics`}>Room analytics</Link>
+              </Button>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
