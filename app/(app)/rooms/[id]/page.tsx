@@ -253,6 +253,12 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
                 Quizzes &amp; decks
               </Button>
             )}
+            {/* Unlike ask/generate, the planner works with zero indexed
+                documents (tasks are topic-based, said on the plan itself), so
+                the entry point is never gated. */}
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/planner?room=${room.id}`}>Study plan</Link>
+            </Button>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">

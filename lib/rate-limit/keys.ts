@@ -71,6 +71,15 @@ export const ASK_LIMIT = { max: 20, windowSeconds: 60 } as const;
  */
 export const GENERATE_LIMIT = { max: 10, windowSeconds: 60 } as const;
 
+/**
+ * Study-plan calls (`POST /api/plans` and its `.../step`). A plan is two
+ * requests (create + one bounded step) and spends a full provider
+ * completion; 10/60s bounds a scripted plan loop while leaving a patient
+ * build session untouched. Keyed per plan scope (room or `personal`) per
+ * user, so one room's plan traffic cannot starve another scope.
+ */
+export const PLAN_LIMIT = { max: 10, windowSeconds: 60 } as const;
+
 export function uploadUserKey(userId: string): string {
   return `upload:user:${userId}`;
 }
@@ -175,4 +184,13 @@ export function generateKey(roomId: string, userId: string): string {
 
 export function generateSpec(roomId: string, userId: string): RateLimitSpec {
   return { key: generateKey(roomId, userId), ...GENERATE_LIMIT };
+}
+
+/** `roomId` is the literal `personal` for a plan outside any room. */
+export function planKey(roomId: string | null, userId: string): string {
+  return `plan:${roomId ?? "personal"}:${userId}`;
+}
+
+export function planSpec(roomId: string | null, userId: string): RateLimitSpec {
+  return { key: planKey(roomId, userId), ...PLAN_LIMIT };
 }
