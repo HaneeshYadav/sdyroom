@@ -87,8 +87,8 @@ Level Security, Storage, Realtime).
 
 ###  In Review
 
-Nothing is in review right now — the next candidates are listed under
-[Planned](#planned) and the [Roadmap](#roadmap).
+-  AI study planner (PR 15, GitHub PR #21) — personal day-by-day plans
+  with deterministic adjustments; see the [Roadmap](#roadmap) for status
 
 <a name="planned"></a>
 

@@ -95,7 +95,7 @@ merged) plus 3 discovered during the audit (19–21). Each has a spec in
 | 12 | AI document processing foundation | [`PR-12`](prs/PR-12-ai-document-foundation.md) | B | merged main (05) | `0013` | Large | In review — [PR #17](https://github.com/chanukyareddygopala07/sdyroom/pull/17) (`51a8eb9`) |
 | 13 | Ask My Notes | [`PR-13`](prs/PR-13-ask-my-notes.md) | B | 12 | `0018` | Large | In review — [PR #19](https://github.com/chanukyareddygopala07/sdyroom/pull/19) (`a6b72a4`) |
 | 14 | AI quizzes & flashcards | [`PR-14`](prs/PR-14-ai-quiz-flashcards.md) | A | 12 | `0019` | Large | In review — [PR #20](https://github.com/chanukyareddygopala07/sdyroom/pull/20) (`29787c4`) |
-| 15 | AI personal study planner | [`PR-15`](prs/PR-15-ai-study-planner.md) | A | 14, 16 | `0020` | Large | In review |
+| 15 | AI personal study planner | [`PR-15`](prs/PR-15-ai-study-planner.md) | A | 14, 16 | `0020` | Large | In review — PR #21 |
 | 16 | Study analytics & accountability | [`PR-16`](prs/PR-16-study-analytics.md) | A | 14 | `0014` | Medium | Pending |
 | 17 | Advanced public room discovery | [`PR-17`](prs/PR-17-room-discovery.md) | A | 06 | `0016` | Medium | Pending |
 | 18 | Production security & reliability hardening | [`PR-18`](prs/PR-18-production-hardening.md) | B | 10, 19, 21 + core | `0017` (if needed) | XL | Pending |

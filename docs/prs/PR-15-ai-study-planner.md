@@ -1,7 +1,8 @@
 # PR 15 — AI study planner
 
-**Status:** in review — implemented on `feat/ai-study-planner` (migration
-`0020_study_plans.sql`; the roadmap's `0015` number was stale and is updated).
+**Status:** in review — GitHub PR #21, implemented on `feat/ai-study-planner`
+(migration `0020_study_plans.sql`; the roadmap's `0015` number was stale and is
+updated).
 **Owner:** Dev A (OpenCode) · **Complexity:** Large · **Migration:** `0020_study_plans.sql`
 **Depends on:** PR 16 (analytics aggregates are the planner's inputs — hard gate, ordered 16 → 15), PR 14 (weak-area metadata + the pattern this PR copies; roadmap lists 14 and 16), PR 12 (provider + retrieval)
 
