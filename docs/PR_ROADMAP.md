@@ -96,7 +96,7 @@ merged) plus 3 discovered during the audit (19–21). Each has a spec in
 | 13 | Ask My Notes | [`PR-13`](prs/PR-13-ask-my-notes.md) | B | 12 | `0018` | Large | In review — [PR #19](https://github.com/chanukyareddygopala07/sdyroom/pull/19) (`a6b72a4`) |
 | 14 | AI quizzes & flashcards | [`PR-14`](prs/PR-14-ai-quiz-flashcards.md) | A | 12 | `0019` | Large | In review — [PR #20](https://github.com/chanukyareddygopala07/sdyroom/pull/20) (`29787c4`) |
 | 15 | AI personal study planner | [`PR-15`](prs/PR-15-ai-study-planner.md) | A | 14, 16 | `0020` | Large | In review — PR #21 |
-| 16 | Study analytics & accountability | [`PR-16`](prs/PR-16-study-analytics.md) | A | 14 | `0014` | Medium | Pending |
+| 16 | Study analytics & accountability | [`PR-16`](prs/PR-16-study-analytics.md) | A | 14 | `0021` | Medium | In review |
 | 17 | Advanced public room discovery | [`PR-17`](prs/PR-17-room-discovery.md) | A | 06 | `0016` | Medium | Pending |
 | 18 | Production security & reliability hardening | [`PR-18`](prs/PR-18-production-hardening.md) | B | 10, 19, 21 + core | `0017` (if needed) | XL | Pending |
 | 19 | Responsive shell, mobile nav & accessibility baseline | [`PR-19`](prs/PR-19-responsive-shell-a11y.md) | A | none | none | Medium | In review — [PR #13](https://github.com/chanukyareddygopala07/sdyroom/pull/13) (`b3acb0f`) |

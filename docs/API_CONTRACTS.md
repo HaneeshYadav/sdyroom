@@ -1311,14 +1311,97 @@ in the provider payload raises `plan_invalid`.
 
 - **Signals**: the planner consumes the merged tables directly
   (`study_goals`, and `quiz_attempts` with their embedded `study_artifacts`)
-  rather than `analytics_me` (PR 16 has not landed); the seam is
-  `lib/planner/signals.ts` and is unit-tested against the merged view.
+  rather than `analytics_me` — PR 16 has landed, and the seam deliberately
+  stays table-direct (`focus_minutes` remains `null` in the signals; see the
+  documented seam in `lib/planner/signals.ts`), unit-tested against the
+  merged view.
 - **Shift arithmetic** lives in TypeScript (`lib/planner/shift.ts`) and is
   re-validated inside `shift_plan` — the spec's "all in SQL" wording is
   satisfied by the RPC's re-check, not by a closed-form SQL expression.
 - **`403 not_owner`** is unreachable: a foreign plan is `404` on every surface
   (no existence oracle), and `create_plan` raises `not_owner` only when a
   caller forges `user_id` in the RPC body — a path no route exposes.
+
+---
+
+## Study analytics (PR 16)
+
+Personal route: session claims → required `?range=7d|30d|90d` (there is **no
+default at the API layer** — a missing or unknown value is `400 validation`)
+→ one `analytics_me` round trip → `{ range, days, summary, plan }`. Identity
+is never a query parameter: `?user_id=…` is ignored, the session picks the
+subject, and the RPC aggregates `auth.uid()` inside the database (a foreign
+`p_user_id` behaves as self — no parameter can be pointed at anyone else).
+The room route validates the id and range the same way, then calls
+`analytics_room`, whose owner-or-moderator check lives in the database — a
+plain member, a non-member and a missing room all answer the identical
+`404 not_found`, so the URL never reveals which rooms exist or who can
+moderate them. The **pages** default an absent `range` to `7d` server-side
+and render `notFound()` for an explicit-but-unknown one (the API answers
+`400` for the same value — both behaviours asserted in tests; the page's
+`notFound()` HTTP status is not asserted because streaming can flush the
+shell first — repo convention). Charts are inline SVG (zero dependencies)
+with `role="img"` + `<title>`/`<desc>` and an sr-only text table, plus a
+collapsed `<details>` copy for sighted readers.
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `GET` | `/api/analytics/me?range=7d\|30d\|90d` | The caller's own day series, summary and active-plan window; `?format=csv` swaps the body for the CSV attachment of the same `days` |
+| `GET` | `/api/analytics/me.csv?range=…` | The spec's download link: the `/me` handler with `format=csv` forced — one auth/validation/aggregation path, so JSON and CSV cannot drift; `Content-Disposition: attachment; filename="study-analytics-<range>.csv"` |
+| `GET` | `/api/analytics/rooms/[id]?range=…` | Owner/moderator aggregates (counts and minutes only); `400` for a non-UUID id, the identical `404` for member, non-member and missing room |
+
+### Payload contracts
+
+- **`days` (personal)**: one row per UTC day, zero-filled across the window
+  (7/30/90 rows): `{ date, focus_minutes, goals_completed, quizzes_taken,
+  cards_reviewed, uploads }`. Personal focus attribution follows the
+  documented `0003` seam: `focus_sessions` carries no `user_id`, so a
+  student's focus minutes are the sessions of rooms they **own** — focus
+  spent in other people's rooms counts only toward that room's aggregate
+  (no identity column is added to fix this; the migration header says so).
+- **`summary` (personal)**: the spec's fields — `focus_minutes`,
+  `goals_completed`, `goals_created`, `quiz_correct`, `quiz_total`, `accuracy`
+  (`null` when no question was answered in the window — never a fake `0`),
+  `cards_due` ("never reviewed or due by end of today (UTC)"), `uploads` —
+  plus additive fields the strip and charts consume: `goals_active`,
+  `quiz_by_difficulty[]` (`{ difficulty, correct, total }`, hardest-first
+  label), `previous_focus_minutes` (the equal-length prior window the strip
+  compares against), `upload_bytes`, `sessions`, `avg_session_minutes`, and
+  `study_days` / `current_streak_days` / `longest_streak_days` (the streaks
+  are computed in TypeScript from the RPC's top-level `study_days` UTC-date
+  array).
+- **`plan`**: the caller's active plan inside the same window —
+  `{ planned_minutes, items_total, items_done, items_overdue }` or `null` —
+  the source of the additive "Plan vs actual" section. Items are
+  window-scoped (only dates `<= today` count), so a tomorrow-dated task never
+  inflates today's planned minutes.
+- **Room `summary` / `days`**: `{ focus_minutes_total, active_members,
+  goals_created, goals_completed, quiz_attempts, quiz_correct, quiz_total,
+  uploads }` and per-day `{ date, focus_minutes, active_members,
+  quiz_attempts }` — counts and minutes only; a recursive key scan in the
+  tests proves no user id or alias can appear. **`active_members`** is the
+  count of distinct members with an attributable action in the window (quiz
+  attempt, card review, room upload, goal created/completed) plus the room
+  owner when ≥1 session ran — not the spec's "≥1 session" wording, which is
+  impossible because `focus_sessions` carries no member identity (`0003` by
+  design; documented in the `0021` migration header).
+- **CSV**: exactly `date,focus_minutes,goals_completed,quizzes_taken,
+  cards_reviewed,uploads` plus a trailing newline — row-for-row the same
+  `days` the JSON path serves (asserted equal, integration).
+
+### Internal contracts: the analytics RPCs (0021)
+
+| RPC | Behaviour |
+| --- | --- |
+| `analytics_me(p_user_id, p_days) → jsonb` | SECURITY DEFINER, `set search_path = ''`, execute revoked from `public`/`anon`, granted to `authenticated`. The subject is always `auth.uid()` (anon → `unauthenticated`, errcode 42501); `p_user_id` is kept in the signature the spec fixes but a foreign or null id silently behaves as self. `p_days` ∉ 1–90 → `validation`. Window `[today_utc − (p_days−1), today_utc]` inclusive with an equal-length previous window for the comparison line; every bucket is the UTC calendar date. Returns `{ days, summary, study_days, plan }`. |
+| `analytics_room(p_room_id, p_days) → jsonb` | Same hardening and window rule. Authorization inside the database: the caller must own the room or hold a `room_moderators` row, else `not_found` — member, outsider and missing room are indistinguishable. Returns counts and minutes only (never a `user_id`-keyed array). |
+
+No base-table grant changes: both functions only `select` through their
+definer (the migration contains no `grant … on <table>` at all — acceptance
+"in the diff, by construction"). Read-only GETs are not rate-limited (the
+write surfaces carry the limits). Errors: `400 validation` (missing/unknown
+range, non-UUID room id) · `401 unauthenticated` · `404 not_found` ·
+`500 analytics_failed`.
 
 ---
 

@@ -2,11 +2,11 @@
  * Planner signals (PR-15 §"context": the plan is personalised from what
  * already exists, not from a fresh interview).
  *
- * PR-16's `analytics_me` view is not merged yet — the spec's hard gate says
- * the signals must be wired to the *merged* tables in the same PR instead
- * of being stubbed, so this module reads `study_goals` and
- * `quiz_attempts`/`study_artifacts` directly through the caller's own RLS
- * session (own rows only; no service-role reads of another user's data).
+ * This module reads `study_goals` and `quiz_attempts`/`study_artifacts`
+ * directly through the caller's own RLS session (own rows only; no
+ * service-role reads of another user's data) — PR-16's `analytics_me` RPC
+ * (0021) aggregates the same tables but does not feed this module: signals
+ * are plain row reads at planning time, not the analytics surface.
  *
  * Every field is nullable on purpose: a student with no goals or no quiz
  * attempts simply has no signal for it, and the prompt omits the attribute
@@ -15,7 +15,9 @@
  * `focus_minutes` is a documented seam: `focus_sessions` (PR-03) carries no
  * `user_id`, so focus time cannot be attributed to a user from a session
  * without a room-ownership hop the spec did not sanction. It stays `null`
- * with the rest of the object shaped for PR-16 to fill in later.
+ * even now that analytics_me computes focus time — the covered contract in
+ * tests/unit/lib/planner/signals.test.ts — with the rest of the object
+ * shaped for it to fill in later if that hop is ever sanctioned.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";

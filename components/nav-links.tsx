@@ -60,3 +60,23 @@ export async function InvitationsNavLink() {
     </Link>
   );
 }
+
+/**
+ * Study analytics are the caller's own panel (PR 16), so the link only
+ * appears once a session exists — same gate and `<Suspense>` rationale as
+ * the two links above.
+ */
+export async function AnalyticsNavLink() {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+
+  if (!data?.claims) {
+    return null;
+  }
+
+  return (
+    <Link href="/analytics" className={LINK_CLASS}>
+      Analytics
+    </Link>
+  );
+}

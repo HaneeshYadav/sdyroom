@@ -4,6 +4,7 @@ import { MobileNav } from "@/components/layout/mobile-nav";
 import { RouteFocus } from "@/components/layout/route-focus";
 import { NotificationBellSlot } from "@/components/notifications/notification-bell-slot";
 import {
+  AnalyticsNavLink,
   InvitationsNavLink,
   NavLinks,
   ResourceNavLink,
@@ -35,6 +36,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       </Suspense>
       <Suspense fallback={null}>
         <InvitationsNavLink />
+      </Suspense>
+      <Suspense fallback={null}>
+        <AnalyticsNavLink />
       </Suspense>
     </>
   );
