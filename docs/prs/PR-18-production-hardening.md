@@ -1,6 +1,6 @@
 # PR 18 — Production hardening and launch readiness
 
-**Status:** in progress — implementation on branch `feat/production-hardening`; GitHub PR pending.
+**Status:** in review — [PR #24](https://github.com/chanukyareddygopala07/sdyroom/pull/24) (`ea56594`).
 **Owner:** Dev B (Cursor) · **Complexity:** XL · **Migration:** none (the spec's `0017` reference was stale; no schema change was needed)
 **Depends on:** PR 10 (rate limits + upload caps), PR 19 (shell/a11y baseline), PR 21 (coverage floor + docs contract); core features 06–09, 12–17 as available — **last in the roadmap by design**
 **Sequencing note:** this PR is deliberately numbered 18 but merges last; treat its checklist as the launch gate.
