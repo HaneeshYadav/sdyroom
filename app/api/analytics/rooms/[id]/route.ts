@@ -12,6 +12,8 @@ import {
   analyticsRangeSchema,
 } from "@/lib/validation/analytics";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type RoomContext = { params: Promise<{ id: string }> };
 
@@ -34,7 +36,7 @@ type RoomContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` — member, non-member or missing |
  * | 500 | `{ "error": { "code": "analytics_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: RoomContext) {
+async function GET_raw(request: NextRequest, { params }: RoomContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -81,10 +83,7 @@ export async function GET(request: NextRequest, { params }: RoomContext) {
     if (error instanceof AnalyticsError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/analytics/rooms] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/analytics/rooms] failed:", errorFields(error));
     return errorResponse(
       "analytics_failed",
       "Could not load room analytics.",
@@ -92,3 +91,5 @@ export async function GET(request: NextRequest, { params }: RoomContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

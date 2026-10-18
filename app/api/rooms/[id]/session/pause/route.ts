@@ -7,6 +7,8 @@ import {
 import { FocusSessionError, pauseFocusSession } from "@/lib/focus/sessions";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type PauseContext = { params: Promise<{ id: string }> };
 
@@ -28,7 +30,7 @@ type PauseContext = { params: Promise<{ id: string }> };
  * | 409 | `{ "error": { "code": "no_active_session" \| "invalid_state" } }` |
  * | 500 | `{ "error": { "code": "pause_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: PauseContext) {
+async function POST_raw(request: NextRequest, { params }: PauseContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest, { params }: PauseContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/session/pause] failed:", error);
+    logError("[api/rooms/session/pause] failed:", errorFields(error));
     return errorResponse(
       "pause_failed",
       "The focus session could not be paused. Please try again.",
@@ -72,3 +74,5 @@ export async function POST(request: NextRequest, { params }: PauseContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

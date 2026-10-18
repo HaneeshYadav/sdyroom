@@ -12,6 +12,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { invitationIdSchema } from "@/lib/validation/invitations";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type RevokeContext = { params: Promise<{ id: string; invitationId: string }> };
 
@@ -36,7 +38,7 @@ type RevokeContext = { params: Promise<{ id: string; invitationId: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` — missing room, somebody else's invitation, or already resolved |
  * | 500 | `{ "error": { "code": "invitation_revoke_failed" } }` |
  */
-export async function DELETE(request: NextRequest, { params }: RevokeContext) {
+async function DELETE_raw(request: NextRequest, { params }: RevokeContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -70,7 +72,7 @@ export async function DELETE(request: NextRequest, { params }: RevokeContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/invitations] revoke failed:", error);
+    logError("[api/rooms/invitations] revoke failed:", errorFields(error));
     return errorResponse(
       "invitation_revoke_failed",
       "The invitation could not be revoked.",
@@ -78,3 +80,5 @@ export async function DELETE(request: NextRequest, { params }: RevokeContext) {
     );
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

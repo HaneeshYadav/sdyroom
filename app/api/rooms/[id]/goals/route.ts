@@ -9,6 +9,8 @@ import { RoomAccessError, requireRoomMembership } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { createGoalSchema } from "@/lib/validation/goals";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type GoalsContext = { params: Promise<{ id: string }> };
 
@@ -28,7 +30,7 @@ type GoalsContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "goals_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: GoalsContext) {
+async function GET_raw(request: NextRequest, { params }: GoalsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -53,7 +55,7 @@ export async function GET(request: NextRequest, { params }: GoalsContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/goals] list failed:", error);
+    logError("[api/rooms/goals] list failed:", errorFields(error));
     return errorResponse(
       "goals_failed",
       "Your goals could not be loaded.",
@@ -61,6 +63,8 @@ export async function GET(request: NextRequest, { params }: GoalsContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);
 
 /**
  * POST /api/rooms/[id]/goals — create one of the caller's own goals.
@@ -79,7 +83,7 @@ export async function GET(request: NextRequest, { params }: GoalsContext) {
  * | 409 | `{ "error": { "code": "duplicate_goal" } }` |
  * | 500 | `{ "error": { "code": "goal_create_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: GoalsContext) {
+async function POST_raw(request: NextRequest, { params }: GoalsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -125,7 +129,7 @@ export async function POST(request: NextRequest, { params }: GoalsContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/goals] create failed:", error);
+    logError("[api/rooms/goals] create failed:", errorFields(error));
     return errorResponse(
       "goal_create_failed",
       "The goal could not be saved. Please try again.",
@@ -133,3 +137,5 @@ export async function POST(request: NextRequest, { params }: GoalsContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

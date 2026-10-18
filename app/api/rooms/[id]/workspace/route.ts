@@ -4,6 +4,8 @@ import { FocusSessionError } from "@/lib/focus/sessions";
 import { getFocusWorkspace } from "@/lib/focus/workspace";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type WorkspaceContext = { params: Promise<{ id: string }> };
 
@@ -27,7 +29,7 @@ type WorkspaceContext = { params: Promise<{ id: string }> };
  * A non-member and a nonexistent room are the same 404, so the URL cannot be
  * used to discover which rooms exist.
  */
-export async function GET(request: NextRequest, { params }: WorkspaceContext) {
+async function GET_raw(request: NextRequest, { params }: WorkspaceContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -51,7 +53,7 @@ export async function GET(request: NextRequest, { params }: WorkspaceContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/workspace] failed:", error);
+    logError("[api/rooms/workspace] failed:", errorFields(error));
     return errorResponse(
       "workspace_failed",
       "The room workspace could not be loaded.",
@@ -59,3 +61,5 @@ export async function GET(request: NextRequest, { params }: WorkspaceContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

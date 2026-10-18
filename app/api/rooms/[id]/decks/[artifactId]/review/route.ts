@@ -6,6 +6,8 @@ import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { artifactIdSchema, reviewBodySchema } from "@/lib/validation/generate";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ReviewContext = { params: Promise<{ id: string; artifactId: string }> };
 
@@ -28,7 +30,7 @@ type ReviewContext = { params: Promise<{ id: string; artifactId: string }> };
  * | 409 | `{ "error": { "code": "artifact_not_ready" } }` |
  * | 500 | `{ "error": { "code": "review_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ReviewContext) {
+async function POST_raw(request: NextRequest, { params }: ReviewContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -75,10 +77,9 @@ export async function POST(request: NextRequest, { params }: ReviewContext) {
     if (error instanceof GenerateError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/decks/review] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/decks/review] failed:", errorFields(error));
     return errorResponse("review_failed", "Could not save that grade.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

@@ -1,7 +1,46 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DOWNLOAD_TTL_SECONDS } from "@/lib/validation/resources";
+import { logError, logWarn } from "@/lib/server/log";
+import { withTimeout } from "@/lib/server/http";
 import { ResourceError } from "./queries";
 import { RESOURCE_BUCKET } from "./types";
+
+/**
+ * Per-operation timeouts (spec PR 18). Storage calls go through supabase-js,
+ * which cannot be cancelled; the timeout bounds how long this app waits, and
+ * a retry is only issued for operations that are safe to repeat — `remove`
+ * and `list` converge on re-run, `createSignedUrl` is a pure read, and
+ * `upload` is deliberately never retried (a timed-out upload may have
+ * committed; re-issuing it with `upsert: false` would fail the whole
+ * request on a path that actually succeeded).
+ */
+const STORAGE_TIMEOUTS = {
+  upload_ms: 60_000,
+  remove_ms: 15_000,
+  list_ms: 15_000,
+  sign_ms: 10_000,
+} as const;
+
+/** Runs one storage operation under a timeout, with bounded retries. */
+async function storageCall<T>(
+  label: string,
+  timeoutMs: number,
+  attempts: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await withTimeout(operation(), timeoutMs, label);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        logWarn("storage_retry", { label, attempt });
+      }
+    }
+  }
+  throw lastError;
+}
 
 export type StorageScope =
   | { kind: "personal"; ownerId: string }
@@ -60,6 +99,14 @@ function describe(error: { message?: string } | null): string {
   return error?.message ?? "unknown storage error";
 }
 
+/** Folds a thrown timeout/transport failure into the `{ error }` shape the
+ * envelope-returning storage API produces, so one failure path serves both. */
+function asStorageError(thrown: unknown): { message: string } {
+  return {
+    message: thrown instanceof Error ? thrown.message : "unknown storage failure",
+  };
+}
+
 /**
  * Uploads the bytes to the private bucket.
  *
@@ -73,18 +120,28 @@ export async function uploadResourceObject(
   bytes: Uint8Array,
   contentType: string,
 ): Promise<void> {
-  const { error } = await client.storage.from(RESOURCE_BUCKET).upload(
-    storagePath,
-    Buffer.from(bytes),
-    { contentType, upsert: false },
-  );
+  let error: { message?: string } | null = null;
+  try {
+    ({ error } = await storageCall(
+      "storage_upload",
+      STORAGE_TIMEOUTS.upload_ms,
+      1,
+      () =>
+        client.storage.from(RESOURCE_BUCKET).upload(
+          storagePath,
+          Buffer.from(bytes),
+          { contentType, upsert: false },
+        ),
+    ));
+  } catch (uploadError) {
+    error = asStorageError(uploadError);
+  }
 
   if (error) {
-    console.error(
-      "[resources/storage] upload failed:",
-      storagePath.split("/")[0],
-      describe(error),
-    );
+    logError("[resources/storage] upload failed", {
+      scope: storagePath.split("/")[0],
+      error_message: describe(error),
+    });
     throw new ResourceError(
       "storage_upload_failed",
       "The file could not be saved. Please try again.",
@@ -102,16 +159,23 @@ export async function removeResourceObject(
   client: SupabaseClient,
   storagePath: string,
 ): Promise<void> {
-  const { error } = await client.storage.from(RESOURCE_BUCKET).remove([
-    storagePath,
-  ]);
+  let error: { message?: string } | null = null;
+  try {
+    ({ error } = await storageCall(
+      "storage_remove",
+      STORAGE_TIMEOUTS.remove_ms,
+      2,
+      () => client.storage.from(RESOURCE_BUCKET).remove([storagePath]),
+    ));
+  } catch (removeError) {
+    error = asStorageError(removeError);
+  }
 
   if (error) {
-    console.error(
-      "[resources/storage] remove failed:",
-      storagePath.split("/")[0],
-      describe(error),
-    );
+    logError("[resources/storage] remove failed", {
+      scope: storagePath.split("/")[0],
+      error_message: describe(error),
+    });
     throw new ResourceError(
       "cleanup_failed",
       "The file could not be removed. Please try again.",
@@ -145,15 +209,23 @@ export async function removeRoomStorageObjects(
   const bucket = client.storage.from(RESOURCE_BUCKET);
   const prefix = `rooms/${roomId}`;
 
-  const { data: entries, error: listError } = await bucket.list(prefix, {
-    limit: 1000,
-  });
+  let listError: { message?: string } | null = null;
+  let entries: { id: string | null; name: string }[] | null = null;
+  try {
+    ({ data: entries, error: listError } = await storageCall(
+      "storage_list",
+      STORAGE_TIMEOUTS.list_ms,
+      2,
+      () => bucket.list(prefix, { limit: 1000 }),
+    ));
+  } catch (listThrown) {
+    listError = asStorageError(listThrown);
+  }
 
   if (listError) {
-    console.error(
-      "[resources/storage] room sweep list failed:",
-      describe(listError),
-    );
+    logError("[resources/storage] room sweep list failed", {
+      error_message: describe(listError),
+    });
     throw new ResourceError(
       "cleanup_failed",
       "The room's files could not be removed. Please try again.",
@@ -171,14 +243,22 @@ export async function removeRoomStorageObjects(
       continue;
     }
     const folderPath = `${prefix}/${entry.name}`;
-    const { data: files, error: folderError } = await bucket.list(folderPath, {
-      limit: 1000,
-    });
+    let files: { id: string | null; name: string }[] | null = null;
+    let folderError: { message?: string } | null = null;
+    try {
+      ({ data: files, error: folderError } = await storageCall(
+        "storage_list",
+        STORAGE_TIMEOUTS.list_ms,
+        2,
+        () => bucket.list(folderPath, { limit: 1000 }),
+      ));
+    } catch (folderThrown) {
+      folderError = asStorageError(folderThrown);
+    }
     if (folderError) {
-      console.error(
-        "[resources/storage] room sweep list failed:",
-        describe(folderError),
-      );
+      logError("[resources/storage] room sweep list failed", {
+        error_message: describe(folderError),
+      });
       throw new ResourceError(
         "cleanup_failed",
         "The room's files could not be removed. Please try again.",
@@ -195,14 +275,22 @@ export async function removeRoomStorageObjects(
   // Chunked so one room with many files never turns into a single oversized
   // request; a failure after a chunk committed still converges on retry.
   for (let i = 0; i < paths.length; i += 100) {
-    const { error } = await bucket.remove(paths.slice(i, i + 100));
+    let error: { message?: string } | null = null;
+    try {
+      ({ error } = await storageCall(
+        "storage_remove",
+        STORAGE_TIMEOUTS.remove_ms,
+        2,
+        () => bucket.remove(paths.slice(i, i + 100)),
+      ));
+    } catch (removeThrown) {
+      error = asStorageError(removeThrown);
+    }
     if (error) {
-      console.error(
-        "[resources/storage] room sweep remove failed:",
-        paths.length - i,
-        "keys remaining,",
-        describe(error),
-      );
+      logError("[resources/storage] room sweep remove failed", {
+        keys_remaining: paths.length - i,
+        error_message: describe(error),
+      });
       throw new ResourceError(
         "cleanup_failed",
         "The room's files could not be removed. Please try again.",
@@ -236,9 +324,27 @@ export async function createResourceDownloadUrl(
   expiresInSeconds: number = DOWNLOAD_TTL_SECONDS,
   downloadName?: string,
 ): Promise<{ url: string; expires_in: number }> {
-  const { data, error } = await client.storage
-    .from(RESOURCE_BUCKET)
-    .createSignedUrl(storagePath, expiresInSeconds);
+  let data: { signedUrl?: string } | null = null;
+  let error: { message?: string } | null = null;
+  try {
+    ({ data, error } = await storageCall(
+      "storage_sign",
+      STORAGE_TIMEOUTS.sign_ms,
+      2,
+      () =>
+        client.storage
+          .from(RESOURCE_BUCKET)
+          .createSignedUrl(storagePath, expiresInSeconds),
+    ));
+  } catch {
+    // Timeout or transport failure — answered with the same error the
+    // storage envelope would have produced.
+    throw new ResourceError(
+      "download_failed",
+      "This file could not be opened. Please try again.",
+      500,
+    );
+  }
 
   if (error || !data?.signedUrl) {
     throw new ResourceError(

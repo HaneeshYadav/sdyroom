@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { NotificationPayload } from "./types";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * The writer — the only supported way a row reaches `notifications`.
@@ -102,10 +103,9 @@ export async function notify(
     if (typeof targetId !== "string" || targetId.length === 0) {
       // The alias did not resolve: nothing to notify, and inventing a uuid
       // is exactly what the RPC would refuse anyway.
-      console.error(
-        `[notify] unresolved target alias for ${event.type}:`,
-        event.targetAlias,
-      );
+      logError(`[notify] unresolved target alias for ${event.type}`, {
+        target_alias: event.targetAlias,
+      });
       return;
     }
 
@@ -118,7 +118,7 @@ export async function notify(
     });
     logUnexpected(event.type, result as RpcResult);
   } catch (error) {
-    console.error(`[notify] ${event.type} failed:`, error);
+    logError(`[notify] ${event.type} failed:`, errorFields(error));
   }
 }
 
@@ -136,7 +136,7 @@ export async function notifySelf(
     })) as RpcResult;
     logUnexpected(event.type, result);
   } catch (error) {
-    console.error(`[notify] ${event.type} failed:`, error);
+    logError(`[notify] ${event.type} failed:`, errorFields(error));
   }
 }
 
@@ -152,10 +152,9 @@ function logUnexpected(type: string, result: RpcResult): void {
   // `muted` is the preference system doing its job, and `deduped` is the
   // collapse rule; anything else is worth an operator's eye in the logs.
   if (code !== "created" && code !== "deduped" && code !== "muted") {
-    console.error(
-      `[notify] ${type} returned unexpected code:`,
-      code ?? "null",
-      envelope ?? result.data,
-    );
+    logError(`[notify] ${type} returned unexpected code`, {
+      code: code ?? null,
+      data: envelope ?? result.data,
+    });
   }
 }

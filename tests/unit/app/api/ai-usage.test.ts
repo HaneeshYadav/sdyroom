@@ -3,6 +3,7 @@ import { UsageError } from "@/lib/ai/usage";
 import { RoomAccessError } from "@/lib/rooms/access";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { captureLogs, errorLines } from "../../helpers/log-capture";
 
 const { createClient, getClaims, requireRoomMembership, fetchUsage } = vi.hoisted(
   () => ({
@@ -57,7 +58,6 @@ beforeEach(() => {
   requireRoomMembership.mockResolvedValue(undefined);
   fetchUsage.mockReset().mockResolvedValue(SUMMARY);
   createClient.mockResolvedValue({ auth: { getClaims } });
-  vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -143,12 +143,14 @@ describe("GET /api/ai/usage", () => {
 
   it("answers any other usage failure with usage_unavailable", async () => {
     fetchUsage.mockRejectedValue(new UsageError("unexpected", "malformed row"));
+    const { lines, restore } = captureLogs();
 
     const response = await GET(request());
 
     expect(response.status).toBe(500);
     expect((await response.json()).error.code).toBe("usage_unavailable");
-    expect(console.error).toHaveBeenCalled();
+    expect(errorLines(lines, "[api/ai/usage] rpc failed:")).toHaveLength(1);
+    restore();
   });
 
   it("answers an unexpected failure with usage_unavailable", async () => {

@@ -6,6 +6,8 @@ import { ModerationError } from "@/lib/moderation/errors";
 import { deleteBlock } from "@/lib/moderation/queries";
 import { createClient } from "@/lib/supabase/server";
 import { memberAliasSchema } from "@/lib/validation/moderation";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type BlockContext = { params: Promise<{ alias: string }> };
 
@@ -26,7 +28,7 @@ type BlockContext = { params: Promise<{ alias: string }> };
  * | 429 | `{ "error": { "code": "rate_limited" } }` |
  * | 500 | `{ "error": { "code": "blocks_failed" } }` |
  */
-export async function DELETE(request: NextRequest, { params }: BlockContext) {
+async function DELETE_raw(request: NextRequest, { params }: BlockContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -65,7 +67,7 @@ export async function DELETE(request: NextRequest, { params }: BlockContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/blocks] delete failed:", error);
+    logError("[api/blocks] delete failed:", errorFields(error));
     return errorResponse(
       "blocks_failed",
       "That block could not be removed. Please try again.",
@@ -73,3 +75,5 @@ export async function DELETE(request: NextRequest, { params }: BlockContext) {
     );
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

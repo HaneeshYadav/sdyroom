@@ -48,6 +48,7 @@ import {
   type IngestStepDone,
 } from "./types";
 import { fetchAiUsageDaily, UsageError } from "./usage";
+import { errorFields, logError } from "@/lib/server/log";
 
 /** Published messages — one string per code, shared by route responses. */
 export const INGEST_MESSAGES: Record<string, string> = {
@@ -264,11 +265,10 @@ async function downloadObject(
     .download(storagePath);
 
   if (error || !data) {
-    console.error(
-      "[ai/ingest] object read failed:",
-      storagePath.split("/")[0],
-      error?.message ?? "no data",
-    );
+    logError("[ai/ingest] object read failed", {
+      scope: storagePath.split("/")[0],
+      error_message: error?.message ?? "no data",
+    });
     throw new IngestError("ingest_failed", 500);
   }
 
@@ -293,7 +293,7 @@ async function markFailed(
     p_status: status,
   });
   if (error) {
-    console.error("[ai/ingest] mark_failed write failed:", error.message);
+    logError("[ai/ingest] mark_failed write failed:", { error_message: error.message });
   }
 }
 
@@ -536,10 +536,7 @@ async function runEmbed(
       throw error;
     }
     await markFailed(client, input.resourceId, "ingest_failed", "embedding");
-    console.error(
-      "[ai/ingest] embed step failed:",
-      error instanceof Error ? error.message : "unknown error",
-    );
+    logError("[ai/ingest] embed step failed", errorFields(error));
     throw new IngestError("ingest_failed", 500);
   }
 
@@ -688,7 +685,7 @@ export async function sweepIngests(
 
   const { data, error } = await query;
   if (error) {
-    console.error("[ai/ingest] sweep list failed:", error.message);
+    logError("[ai/ingest] sweep list failed:", { error_message: error.message });
     throw new IngestError("ingest_failed", 500);
   }
 

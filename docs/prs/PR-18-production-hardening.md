@@ -1,9 +1,16 @@
 # PR 18 — Production hardening and launch readiness
 
-**Status:** specification only — no GitHub PR exists.
-**Owner:** Dev B (Cursor) · **Complexity:** XL · **Migration:** `0017_production_hardening.sql` (only if probes require it — see Database)
+**Status:** in progress — implementation on branch `feat/production-hardening`; GitHub PR pending.
+**Owner:** Dev B (Cursor) · **Complexity:** XL · **Migration:** none (the spec's `0017` reference was stale; no schema change was needed)
 **Depends on:** PR 10 (rate limits + upload caps), PR 19 (shell/a11y baseline), PR 21 (coverage floor + docs contract); core features 06–09, 12–17 as available — **last in the roadmap by design**
 **Sequencing note:** this PR is deliberately numbered 18 but merges last; treat its checklist as the launch gate.
+
+**Implementation notes / deviations** (reconciled during the build):
+- `withLogging` wraps each route export rather than living in middleware — middleware cannot observe the final response status or duration.
+- `x-request-id` is resolved and validated in `proxy.ts` (sole writer of `x-user-id`); `withLogging` re-resolves it, echoes the header, and `errorResponse` embeds it via AsyncLocalStorage so the envelope builder stays synchronous.
+- Metrics are in-memory per instance (`instance: "single"`) — a multi-instance aggregator is a named follow-up, not a silent omission.
+- Outbound policy lives in `lib/server/http.ts` (`withTimeout`, `fetchJson`, `createFailureGuard`): embeddings retry ×2 (idempotent), chat completions never retried, storage upload 60 s no-retry / remove+list 15 s ×2 / sign 10 s ×2; AI failure guard threshold 5 / cooldown 30 s half-open.
+- Integration parity tests that compared two error envelopes byte-for-byte now strip the per-request `request_id` first (`withoutRequestId` helper) — the privacy property is unchanged.
 
 ---
 

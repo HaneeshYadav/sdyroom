@@ -92,7 +92,11 @@ describe("GET /api/rooms", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
-      error: { code: "unauthenticated", message: expect.any(String) },
+      error: {
+        code: "unauthenticated",
+        message: expect.any(String),
+        request_id: expect.any(String),
+      },
     });
     expect(searchPublicRooms).not.toHaveBeenCalled();
   });
@@ -321,6 +325,7 @@ describe("POST /api/rooms", () => {
       error: {
         code: "permission_denied",
         message: "You do not have permission to create this room.",
+        request_id: expect.any(String),
       },
     });
   });

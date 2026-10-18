@@ -7,6 +7,8 @@ import {
 } from "@/lib/notifications/queries";
 import { listNotificationsQuerySchema } from "@/lib/notifications/validation";
 import { createClient } from "@/lib/supabase/server";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/notifications — the caller's own inbox, newest first.
@@ -25,7 +27,7 @@ import { createClient } from "@/lib/supabase/server";
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 500 | `{ "error": { "code": "notifications_failed" } }` |
  */
-export async function GET(request: NextRequest) {
+async function GET_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -53,7 +55,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof NotificationQueryError) {
-      console.error("[api/notifications] list failed:", error);
+      logError("[api/notifications] list failed:", errorFields(error));
       return errorResponse(
         "notifications_failed",
         "Notifications could not be loaded.",
@@ -63,3 +65,5 @@ export async function GET(request: NextRequest) {
     throw error;
   }
 }
+
+export const GET = withLogging(GET_raw);

@@ -7,6 +7,8 @@ import {
 } from "@/lib/notifications/queries";
 import { updateNotificationPrefsSchema } from "@/lib/notifications/validation";
 import { createClient } from "@/lib/supabase/server";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * PATCH /api/profile/notification-prefs — partial update of the caller's
@@ -26,7 +28,7 @@ import { createClient } from "@/lib/supabase/server";
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 500 | `{ "error": { "code": "notifications_failed" } }` |
  */
-export async function PATCH(request: NextRequest) {
+async function PATCH_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -53,7 +55,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ prefs });
   } catch (error) {
     if (error instanceof NotificationQueryError) {
-      console.error("[api/profile/notification-prefs] failed:", error);
+      logError("[api/profile/notification-prefs] failed:", errorFields(error));
       return errorResponse(
         "notifications_failed",
         "Preferences could not be saved. Please try again.",
@@ -63,3 +65,5 @@ export async function PATCH(request: NextRequest) {
     throw error;
   }
 }
+
+export const PATCH = withLogging(PATCH_raw);

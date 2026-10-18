@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { errorResponse } from "@/lib/api/responses";
+import { errorFields, logError } from "@/lib/server/log";
 import type { RateLimitSpec } from "./keys";
 
 /**
@@ -31,7 +32,10 @@ export async function takeRateLimit(
       p_window: `${spec.windowSeconds} seconds`,
     });
     if (error) {
-      console.error("[rate-limit] take failed:", spec.key.split(":")[0], error.message);
+      logError("[rate-limit] take failed", {
+        key: spec.key.split(":")[0],
+        error_message: error.message,
+      });
       return true;
     }
     // `false` is the RPC's only "no" answer. Anything else (a null from an
@@ -39,11 +43,10 @@ export async function takeRateLimit(
     // the world on a surprise.
     return data !== false;
   } catch (error) {
-    console.error(
-      "[rate-limit] take threw:",
-      spec.key.split(":")[0],
-      error instanceof Error ? error.message : error,
-    );
+    logError("[rate-limit] take threw", {
+      key: spec.key.split(":")[0],
+      ...errorFields(error),
+    });
     return true;
   }
 }

@@ -18,6 +18,8 @@ import { parseUploadForm } from "@/lib/resources/upload";
 import { createClient } from "@/lib/supabase/server";
 import { resourceListQuerySchema } from "@/lib/validation/resources";
 import { MAX_FILE_BYTES } from "@/lib/validation/resources";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * Slack allowed over the file ceiling for the multipart envelope itself
@@ -55,7 +57,7 @@ function unauthenticated(): NextResponse {
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "resources_failed" } }` |
  */
-export async function GET(request: NextRequest) {
+async function GET_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -106,7 +108,7 @@ export async function GET(request: NextRequest) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/resources] list failed:", error);
+    logError("[api/resources] list failed:", errorFields(error));
     return errorResponse(
       "resources_failed",
       "Your files could not be loaded. Please try again.",
@@ -114,6 +116,8 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);
 
 /**
  * POST /api/resources — upload one file.
@@ -143,7 +147,7 @@ export async function GET(request: NextRequest) {
  * (`unsupported_file_type`), 429 (`rate_limited`) and 500
  * (`storage_upload_failed`, `metadata_failed`).
  */
-export async function POST(request: NextRequest) {
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -210,7 +214,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof RoomAccessError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error("[api/resources] membership check failed:", error);
+    logError("[api/resources] membership check failed:", errorFields(error));
     return errorResponse(
       "metadata_failed",
       "The file could not be uploaded. Please try again.",
@@ -240,7 +244,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof ResourceError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error("[api/resources] storage upload failed:", error);
+    logError("[api/resources] storage upload failed:", errorFields(error));
     return errorResponse(
       "storage_upload_failed",
       "The file could not be saved. Please try again.",
@@ -267,16 +271,18 @@ export async function POST(request: NextRequest) {
     try {
       await removeResourceObject(supabase, storagePath);
     } catch (cleanupError) {
-      console.error(
-        "[api/resources] rollback of orphan object failed:",
-        cleanupError instanceof ResourceError ? cleanupError.code : cleanupError,
-      );
+      logError("[api/resources] rollback of orphan object failed", {
+        ...(cleanupError instanceof ResourceError
+          ? { error_code: cleanupError.code }
+          : {}),
+        ...errorFields(cleanupError),
+      });
     }
 
     if (error instanceof ResourceError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error("[api/resources] metadata insert failed:", error);
+    logError("[api/resources] metadata insert failed:", errorFields(error));
     return errorResponse(
       "metadata_failed",
       "The file could not be saved. Please try again.",
@@ -284,3 +290,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

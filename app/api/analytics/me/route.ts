@@ -12,6 +12,8 @@ import {
   ANALYTICS_RANGE_MESSAGE,
   analyticsRangeSchema,
 } from "@/lib/validation/analytics";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/analytics/me — the caller's own day series + summary.
@@ -35,7 +37,7 @@ import {
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 500 | `{ "error": { "code": "analytics_failed" } }` |
  */
-export async function GET(request: NextRequest) {
+async function GET_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -86,10 +88,7 @@ export async function GET(request: NextRequest) {
     if (error instanceof AnalyticsError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/analytics/me] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/analytics/me] failed:", errorFields(error));
     return errorResponse(
       "analytics_failed",
       "Could not load your study analytics.",
@@ -97,3 +96,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

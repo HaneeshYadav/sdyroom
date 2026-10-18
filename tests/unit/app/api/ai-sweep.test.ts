@@ -4,6 +4,7 @@ import { SWEEP_LIMIT } from "@/lib/rate-limit/keys";
 import { RoomAccessError } from "@/lib/rooms/access";
 import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { captureLogs, errorLines } from "../../helpers/log-capture";
 
 const { createClient, getClaims, rateLimitedResponse, requireRoomMembership, sweep } =
   vi.hoisted(() => ({
@@ -44,7 +45,6 @@ beforeEach(() => {
   requireRoomMembership.mockResolvedValue(undefined);
   sweep.mockReset();
   createClient.mockResolvedValue({ auth: { getClaims } });
-  vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
 describe("POST /api/ai/ingest/sweep", () => {
@@ -148,11 +148,13 @@ describe("POST /api/ai/ingest/sweep", () => {
 
   it("answers an unexpected failure with ingest_failed and logs it", async () => {
     sweep.mockRejectedValue(new Error("connection reset"));
+    const { lines, restore } = captureLogs();
 
     const response = await POST(request("{}"));
 
     expect(response.status).toBe(500);
     expect((await response.json()).error.code).toBe("ingest_failed");
-    expect(console.error).toHaveBeenCalled();
+    expect(errorLines(lines, "[api/ai/ingest/sweep] failed:")).toHaveLength(1);
+    restore();
   });
 });

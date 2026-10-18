@@ -9,6 +9,8 @@ import { RoomAccessError, requireRoomMembership } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { messagesQuerySchema, sendMessageSchema } from "@/lib/validation/chat";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type MessagesContext = { params: Promise<{ id: string }> };
 
@@ -30,7 +32,7 @@ type MessagesContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "messages_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: MessagesContext) {
+async function GET_raw(request: NextRequest, { params }: MessagesContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -72,7 +74,7 @@ export async function GET(request: NextRequest, { params }: MessagesContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/messages] list failed:", error);
+    logError("[api/rooms/messages] list failed:", errorFields(error));
     return errorResponse(
       "messages_failed",
       "Messages could not be loaded.",
@@ -80,6 +82,8 @@ export async function GET(request: NextRequest, { params }: MessagesContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);
 
 /**
  * POST /api/rooms/[id]/messages — append one of the caller's own messages.
@@ -99,7 +103,7 @@ export async function GET(request: NextRequest, { params }: MessagesContext) {
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "message_create_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: MessagesContext) {
+async function POST_raw(request: NextRequest, { params }: MessagesContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -153,7 +157,7 @@ export async function POST(request: NextRequest, { params }: MessagesContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/messages] create failed:", error);
+    logError("[api/rooms/messages] create failed:", errorFields(error));
     return errorResponse(
       "message_create_failed",
       "The message could not be sent. Please try again.",
@@ -161,3 +165,5 @@ export async function POST(request: NextRequest, { params }: MessagesContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

@@ -7,6 +7,7 @@ import {
 } from "@/lib/ai/ingest";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { captureLogs } from "../../helpers/log-capture";
 
 const { findResourceLocator, providerEmbed } = vi.hoisted(() => ({
   findResourceLocator: vi.fn(),
@@ -136,15 +137,13 @@ beforeEach(() => {
   }
   findResourceLocator.mockReset().mockResolvedValue({ storage_path: STORAGE_PATH });
   providerEmbed.mockReset();
-  providerEmbed.mockImplementation(async (texts: string[]) => ({
-    vectors: texts.map(() => Array.from({ length: 1536 }, () => 0.5)),
-    tokens: 7,
-    model: "mock-embedding-1536",
-    provider: "mock" as const,
-  }));
-  vi.spyOn(console, "error").mockImplementation(() => undefined);
-  vi.spyOn(console, "warn").mockImplementation(() => undefined);
-});
+    providerEmbed.mockImplementation(async (texts: string[]) => ({
+      vectors: texts.map(() => Array.from({ length: 1536 }, () => 0.5)),
+      tokens: 7,
+      model: "mock-embedding-1536",
+      provider: "mock" as const,
+    }));
+  });
 
 afterEach(() => {
   for (const key of AI_ENV_KEYS) {
@@ -392,7 +391,7 @@ describe("advanceIngest — extract step", () => {
   });
 
   it("answers a missing storage object with ingest_failed and never logs the path or user", async () => {
-    const errorSpy = vi.mocked(console.error);
+    const { lines, restore } = captureLogs();
     const { client } = fakeClient({
       rpc: { ingest_begin: () => baseBegin({ status: "extracting" }) },
       downloadError: "Object not found",
@@ -406,11 +405,12 @@ describe("advanceIngest — extract step", () => {
       }),
     ).rejects.toMatchObject({ code: "ingest_failed", status: 500 });
 
-    const logged = errorSpy.mock.calls.flat().map(String).join(" ");
-    expect(logged).toContain("[ai/ingest] object read failed:");
+    const logged = JSON.stringify(lines);
+    expect(logged).toContain("[ai/ingest] object read failed");
     expect(logged).not.toContain(STORAGE_PATH);
     expect(logged).not.toContain(USER);
     expect(logged).not.toContain(RESOURCE);
+    restore();
   });
 
   it("answers a resource that vanished with 404", async () => {

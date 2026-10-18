@@ -9,6 +9,8 @@ import {
   createPlanSchema,
   planStatusSchema,
 } from "@/lib/validation/planner";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * POST /api/plans — start (or resume) the caller's study plan.
@@ -42,7 +44,7 @@ function mapPlanError(error: PlanError): NextResponse {
   return errorResponse(error.code, error.message, error.status, error.issues);
 }
 
-export async function GET(request: NextRequest) {
+async function GET_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -70,15 +72,14 @@ export async function GET(request: NextRequest) {
     if (error instanceof PlanError) {
       return mapPlanError(error);
     }
-    console.error(
-      "[api/plans] list failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/plans] list failed:", errorFields(error));
     return errorResponse("plans_failed", "Could not list your plans.", 500);
   }
 }
 
-export async function POST(request: NextRequest) {
+export const GET = withLogging(GET_raw);
+
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -112,10 +113,9 @@ export async function POST(request: NextRequest) {
     if (error instanceof PlanError) {
       return mapPlanError(error);
     }
-    console.error(
-      "[api/plans] create failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/plans] create failed:", errorFields(error));
     return errorResponse("plans_failed", "Could not start the plan.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

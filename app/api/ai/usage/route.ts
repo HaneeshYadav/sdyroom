@@ -6,6 +6,8 @@ import { UsageError, fetchAiUsageDaily } from "@/lib/ai/usage";
 import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { aiUsageQuerySchema } from "@/lib/validation/ai";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/ai/usage?room_id= — today's AI spend for one scope.
@@ -18,7 +20,7 @@ import { aiUsageQuerySchema } from "@/lib/validation/ai";
  *
  * Answer: `200 { used_bytes, used_tokens, limit_bytes, provider }`.
  */
-export async function GET(request: NextRequest) {
+async function GET_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
           401,
         );
       }
-      console.error("[api/ai/usage] rpc failed:", error.code);
+      logError("[api/ai/usage] rpc failed:", { error_code: error.code });
       return errorResponse(
         "usage_unavailable",
         "Usage could not be loaded right now. Try again.",
@@ -82,10 +84,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.error(
-      "[api/ai/usage] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/ai/usage] failed:", errorFields(error));
 
     return errorResponse(
       "usage_unavailable",
@@ -94,3 +93,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

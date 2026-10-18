@@ -632,8 +632,31 @@ grace period in both directions.
 | `push_notification(p_user_id, p_type, p_payload, p_room_id, p_dedupe_key) → jsonb` | SECURITY DEFINER, execute `authenticated` only. Spec-exact signature; the target uuid is resolved in TypeScript through the existing `moderation_resolve_alias` RPC, so a route never hand-writes an id it has not proven. Enforces the closed producer rule table (header of the migration): `invite_created` requires the caller to own the room; `muted`/`member_removed`/`moderation_resolved` require owner or moderator; the self-scoped types require `p_user_id = auth.uid()`. Reads `profiles.notification_prefs` at write time and answers `muted` without a row when the category is off. Dedupe collapses (updates `created_at`/`payload`, answers `deduped`); a unique-violation race retries once. Returns `{ code, id? }` — `created`/`deduped`/`muted`/`validation`/`not_authorized`/`not_found`/`invalid_payload` — the repo's envelope convention, not a bare uuid. |
 | `push_report_notification(p_report_id, p_type, p_payload, p_dedupe_key) → jsonb` | SECURITY DEFINER, execute `authenticated` only. Same rule table, but the **reporter's uuid is read from the report row** — it never travels through a route body (the PR-09 rule carried forward). A smuggled `user_id` in the payload is refused `invalid_payload`. |
 | `notifications_unread_count() → integer` | Invoker's-rights (not definer) count of the caller's own unread rows — named to avoid public-schema pollution and granted to `authenticated` only. |
-| `prune_notifications(p_before) → integer` | SECURITY DEFINER retention, **execute `service_role` only** — no application request can invoke it, and no cron is configured yet (recorded as a known limitation in `docs/SECURITY.md`). |
+| `prune_notifications(p_before) → integer` | SECURITY DEFINER retention, **execute `service_role` only** — no application request can invoke it, and no cron is configured yet (recorded as a known limitation in `docs/SECURITY.md`). Runbook below. |
 | `profiles.notification_prefs` | jsonb column, default `'{"default": "all"}'`. Values from `all`/`mentions_and_invites`/`none`; `mentions_and_invites` means invites-only; `system` events ignore preferences. Writable through a narrow column-level `UPDATE` grant only. |
+
+### Retention runbook (`prune_notifications`)
+
+Notifications accumulate without bound until something calls the retention
+function. Nothing in the app can (by design — it is `service_role`-only), so
+retention is an operator task. Against the local stack, as superuser:
+
+```sh
+# How many rows would a 90-day prune remove?
+docker exec -e PGPASSWORD=postgres supabase_db_sdyroom \
+  psql -U postgres -d postgres -c \
+  "select count(*) from public.notifications where created_at < now() - interval '90 days';"
+
+# Prune them.
+docker exec -e PGPASSWORD=postgres supabase_db_sdyroom \
+  psql -U postgres -d postgres -c \
+  "select public.prune_notifications(now() - interval '90 days');"
+```
+
+The function returns the number of rows it deleted. On hosted Supabase the
+same statement runs through a scheduled Edge Function holding the service-role
+key or pg_cron (if enabled) — see `docs/RELEASE.md` for the production
+scheduling note and the chosen retention window.
 
 ## pgvector and the AI ingest functions (`0013_ai_documents.sql`)
 

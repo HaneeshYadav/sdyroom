@@ -5,6 +5,8 @@ import { setReportStatus } from "@/lib/moderation/queries";
 import { createClient } from "@/lib/supabase/server";
 import { notify, reportDedupeKey } from "@/lib/notifications/write";
 import { reportIdSchema, updateReportStatusSchema } from "@/lib/validation/moderation";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ReportContext = { params: Promise<{ reportId: string }> };
 
@@ -31,7 +33,7 @@ type ReportContext = { params: Promise<{ reportId: string }> };
  * | 409 | `{ "error": { "code": "invalid_transition" } }` |
  * | 500 | `{ "error": { "code": "report_failed" } }` |
  */
-export async function PATCH(request: NextRequest, { params }: ReportContext) {
+async function PATCH_raw(request: NextRequest, { params }: ReportContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -91,7 +93,7 @@ export async function PATCH(request: NextRequest, { params }: ReportContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/reports] status update failed:", error);
+    logError("[api/reports] status update failed:", errorFields(error));
     return errorResponse(
       "report_failed",
       "The report could not be updated. Please try again.",
@@ -99,3 +101,5 @@ export async function PATCH(request: NextRequest, { params }: ReportContext) {
     );
   }
 }
+
+export const PATCH = withLogging(PATCH_raw);

@@ -44,6 +44,7 @@ import { retrieve, type CitationRef } from "./retrieve";
 import { estimateTokens } from "./tokens";
 import type { FlashcardGrade } from "./srs";
 import { toStoredCitations, type StoredCitation } from "./ask";
+import { logError } from "@/lib/server/log";
 
 /** Ask failures that map to an HTTP status in the routes. */
 export type GenerateErrorCode =
@@ -754,7 +755,7 @@ export async function failArtifact(
   if (error) {
     // Best-effort: the caller is already failing the request; a failed
     // fail-artifact leaves the row `generating` for a retry or the UI.
-    console.error("[ai/generate] fail_artifact failed:", error.message);
+    logError("[ai/generate] fail_artifact failed:", { error_message: error.message });
   }
 }
 

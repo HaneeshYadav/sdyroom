@@ -8,6 +8,7 @@ import {
   isAiDemoMode,
 } from "@/lib/ai/config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { captureLogs } from "../../helpers/log-capture";
 
 const AI_KEYS = [
   "AI_PROVIDER",
@@ -75,13 +76,18 @@ describe("aiConfig — provider resolution", () => {
   });
 
   it("treats a typo'd provider as auto and warns without echoing the value", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { lines, restore } = captureLogs();
     process.env.AI_PROVIDER = "opeenai";
     const config = aiConfig();
     expect(config.setting).toBe("auto");
     expect(config.provider).toBe("mock"); // no key → still honest
-    expect(warn).toHaveBeenCalledWith("[ai/config] unknown AI_PROVIDER — treating as auto");
-    expect(warn.mock.calls.flat().join(" ")).not.toContain("opeenai");
+    const warns = lines.filter((line) => line.level === "warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0].event).toBe(
+      "[ai/config] unknown AI_PROVIDER — treating as auto",
+    );
+    expect(JSON.stringify(lines)).not.toContain("opeenai");
+    restore();
   });
 
   it("trims the key so whitespace-only is treated as absent", () => {

@@ -10,6 +10,8 @@ import {
 } from "@/lib/invitations/queries";
 import { createClient } from "@/lib/supabase/server";
 import { invitationIdSchema } from "@/lib/validation/invitations";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type RejectContext = { params: Promise<{ id: string }> };
 
@@ -34,7 +36,7 @@ type RejectContext = { params: Promise<{ id: string }> };
  * | 410 | `{ "error": { "code": "expired" } }` |
  * | 500 | `{ "error": { "code": "invitation_reject_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: RejectContext) {
+async function POST_raw(request: NextRequest, { params }: RejectContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest, { params }: RejectContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/invitations/reject] failed:", error);
+    logError("[api/invitations/reject] failed:", errorFields(error));
     return errorResponse(
       "invitation_reject_failed",
       "The invitation could not be rejected.",
@@ -71,3 +73,5 @@ export async function POST(request: NextRequest, { params }: RejectContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

@@ -16,6 +16,8 @@ import { rateLimitedResponse } from "@/lib/rate-limit/check";
 import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type GenerateContext = { params: Promise<{ id: string }> };
 
@@ -41,7 +43,7 @@ type GenerateContext = { params: Promise<{ id: string }> };
  * | 429 | `{ "error": { "code": "rate_limited" } }` |
  * | 500 | `{ "error": { "code": "generate_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: GenerateContext) {
+async function POST_raw(request: NextRequest, { params }: GenerateContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -64,10 +66,7 @@ export async function POST(request: NextRequest, { params }: GenerateContext) {
     if (error instanceof RoomAccessError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/generate] membership check failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/generate] membership check failed:", errorFields(error));
     return errorResponse("generate_failed", "Could not check room access.", 500);
   }
 
@@ -104,10 +103,9 @@ export async function POST(request: NextRequest, { params }: GenerateContext) {
     if (error instanceof AiProviderError || error instanceof RetrieveError) {
       return errorResponse("ai_provider_failed", error.message, 502);
     }
-    console.error(
-      "[api/rooms/generate] create failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/generate] create failed:", errorFields(error));
     return errorResponse("generate_failed", "Could not start generation.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

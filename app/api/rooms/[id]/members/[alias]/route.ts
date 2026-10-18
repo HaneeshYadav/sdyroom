@@ -10,6 +10,8 @@ import { createClient } from "@/lib/supabase/server";
 import { notify, roomDedupeKey } from "@/lib/notifications/write";
 import { memberAliasSchema } from "@/lib/validation/moderation";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type MemberContext = {
   params: Promise<{ id: string; alias: string }>;
@@ -34,7 +36,7 @@ type MemberContext = {
  * | 404 | `{ "error": { "code": "not_found" } }` — missing room, non-member, non-existent target, or caller lacks rights |
  * | 500 | `{ "error": { "code": "moderation_failed" } }` |
  */
-export async function DELETE(request: NextRequest, { params }: MemberContext) {
+async function DELETE_raw(request: NextRequest, { params }: MemberContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -102,7 +104,7 @@ export async function DELETE(request: NextRequest, { params }: MemberContext) {
       );
     }
 
-    console.error("[api/rooms/members/remove] failed:", error);
+    logError("[api/rooms/members/remove] failed:", errorFields(error));
     return errorResponse(
       "moderation_failed",
       "That member could not be removed. Please try again.",
@@ -110,3 +112,5 @@ export async function DELETE(request: NextRequest, { params }: MemberContext) {
     );
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

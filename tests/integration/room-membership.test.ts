@@ -6,7 +6,7 @@ import { createProfile } from "@/lib/profiles/queries";
 import { createRoom } from "@/lib/rooms/create";
 import { joinRoom, MembershipError } from "@/lib/rooms/membership";
 import { createRoomSchema } from "@/lib/validation/rooms";
-import { callApiWithParams, errorOf, readJson } from "./helpers/api";
+import { callApiWithParams, errorOf, readJson, withoutRequestId } from "./helpers/api";
 import { clearCookies, seedSession } from "./helpers/cookie-jar";
 import { integrationEnv } from "./helpers/env";
 import {
@@ -205,7 +205,9 @@ describe("joining and leaving public rooms", () => {
       expect(priv.response.status).toBe(404);
       expect(missing.response.status).toBe(404);
       expect(errorOf(priv.body).code).toBe("not_found");
-      expect(priv.body).toEqual(missing.body);
+      // request_id is per-request by design, so it is stripped before the
+      // indistinguishability comparison.
+      expect(withoutRequestId(priv.body)).toEqual(withoutRequestId(missing.body));
     });
 
     it("refuses a new member once the room is closed", async () => {

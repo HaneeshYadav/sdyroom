@@ -10,6 +10,8 @@ import {
 } from "@/lib/invitations/queries";
 import { createClient } from "@/lib/supabase/server";
 import { invitationIdSchema } from "@/lib/validation/invitations";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type AcceptContext = { params: Promise<{ id: string }> };
 
@@ -37,7 +39,7 @@ type AcceptContext = { params: Promise<{ id: string }> };
  * | 410 | `{ "error": { "code": "expired" } }` — read-time deadline check |
  * | 500 | `{ "error": { "code": "invitation_accept_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: AcceptContext) {
+async function POST_raw(request: NextRequest, { params }: AcceptContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest, { params }: AcceptContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/invitations/accept] failed:", error);
+    logError("[api/invitations/accept] failed:", errorFields(error));
     return errorResponse(
       "invitation_accept_failed",
       "The invitation could not be accepted.",
@@ -82,3 +84,5 @@ export async function POST(request: NextRequest, { params }: AcceptContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

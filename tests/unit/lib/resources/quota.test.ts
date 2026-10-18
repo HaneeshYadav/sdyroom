@@ -3,7 +3,8 @@ import {
   resourceQuotaOk,
   type ResourceQuota,
 } from "@/lib/resources/quota";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { captureLogs, errorLines } from "../../helpers/log-capture";
 
 const QUOTA: ResourceQuota = {
   scope: "room",
@@ -18,10 +19,6 @@ function clientWith(rpc: ReturnType<typeof vi.fn>) {
 }
 
 describe("resourceQuotaOk", () => {
-  beforeEach(() => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-  });
-
   it("passes the scope and byte count to the RPC", async () => {
     const rpc = vi.fn(async () => ({ data: true }));
 
@@ -56,18 +53,24 @@ describe("resourceQuotaOk", () => {
       data: null,
       error: { message: "function resource_quota_ok does not exist" },
     }));
+    const { lines, restore } = captureLogs();
 
     await expect(resourceQuotaOk(clientWith(rpc), null, 1)).resolves.toBe(true);
-    expect(console.error).toHaveBeenCalled();
+
+    expect(errorLines(lines, "[resources/quota] pre-check failed:")).toHaveLength(1);
+    restore();
   });
 
   it("fails open when the client throws", async () => {
     const rpc = vi.fn(async () => {
       throw new Error("network down");
     });
+    const { lines, restore } = captureLogs();
 
     await expect(resourceQuotaOk(clientWith(rpc), null, 1)).resolves.toBe(true);
-    expect(console.error).toHaveBeenCalled();
+
+    expect(errorLines(lines, "[resources/quota] pre-check threw")).toHaveLength(1);
+    restore();
   });
 
   it("fails open on an unexpected payload shape", async () => {

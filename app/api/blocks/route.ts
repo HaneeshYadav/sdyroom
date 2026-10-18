@@ -6,6 +6,8 @@ import { ModerationError } from "@/lib/moderation/errors";
 import { createBlock, listBlocks } from "@/lib/moderation/queries";
 import { createClient } from "@/lib/supabase/server";
 import { blockCreateSchema } from "@/lib/validation/moderation";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/blocks — the caller's own block list: aliases and when they were
@@ -21,7 +23,8 @@ import { blockCreateSchema } from "@/lib/validation/moderation";
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 500 | `{ "error": { "code": "blocks_failed" } }` |
  */
-export async function GET() {
+async function GET_raw(request: NextRequest) {
+  void request;
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -33,7 +36,7 @@ export async function GET() {
     const blocks = await listBlocks(supabase);
     return NextResponse.json({ blocks, count: blocks.length });
   } catch (error) {
-    console.error("[api/blocks] list failed:", error);
+    logError("[api/blocks] list failed:", errorFields(error));
     return errorResponse(
       "blocks_failed",
       "Your block list could not be loaded.",
@@ -41,6 +44,8 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);
 
 /**
  * POST /api/blocks — block a student by alias. The target is resolved to a
@@ -65,7 +70,7 @@ export async function GET() {
  * | 429 | `{ "error": { "code": "rate_limited" } }` |
  * | 500 | `{ "error": { "code": "blocks_failed" } }` |
  */
-export async function POST(request: NextRequest) {
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -103,7 +108,7 @@ export async function POST(request: NextRequest) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/blocks] create failed:", error);
+    logError("[api/blocks] create failed:", errorFields(error));
     return errorResponse(
       "blocks_failed",
       "That student could not be blocked. Please try again.",
@@ -111,3 +116,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

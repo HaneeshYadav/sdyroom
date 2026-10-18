@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * Storage quota numbers for one scope, as `GET /api/resources` returns them.
@@ -40,16 +41,13 @@ export async function resourceQuotaOk(
       p_add_bytes: addBytes,
     });
     if (error) {
-      console.error("[resources/quota] pre-check failed:", error.message);
+      logError("[resources/quota] pre-check failed:", { error_message: error.message });
       return true;
     }
     // Only an explicit `false` refuses; an unexpected payload shape allows.
     return data !== false;
   } catch (error) {
-    console.error(
-      "[resources/quota] pre-check threw:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[resources/quota] pre-check threw", errorFields(error));
     return true;
   }
 }

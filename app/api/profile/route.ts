@@ -11,13 +11,15 @@ import {
 } from "@/lib/profiles/queries";
 import { createClient } from "@/lib/supabase/server";
 import { onboardingSchema } from "@/lib/validation/profile";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * POST /api/profile — onboarding: choose a unique study alias.
  * The profile id is always the session's own user id (401 without a session);
  * RLS additionally rejects any other id.
  */
-export async function POST(request: NextRequest) {
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ profile: existing, created: false });
     }
   } catch (error) {
-    console.error("[api/profile] lookup failed:", error);
+    logError("[api/profile] lookup failed:", errorFields(error));
     return errorResponse(
       "query_failed",
       "Your profile could not be loaded.",
@@ -70,7 +72,7 @@ export async function POST(request: NextRequest) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/profile] create failed:", error);
+    logError("[api/profile] create failed:", errorFields(error));
     return errorResponse(
       "query_failed",
       "Your study alias could not be saved. Please try again.",
@@ -78,3 +80,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

@@ -8,6 +8,8 @@ import {
 import { getPlanRow, PlanError, shiftPlan } from "@/lib/planner/plans";
 import { createClient } from "@/lib/supabase/server";
 import { planIdSchema, shiftPlanSchema } from "@/lib/validation/planner";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ShiftContext = { params: Promise<{ planId: string }> };
 
@@ -35,7 +37,7 @@ type ShiftContext = { params: Promise<{ planId: string }> };
  * | 409 | `{ "error": { "code": "plan_not_active" } }` |
  * | 500 | `{ "error": { "code": "plans_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ShiftContext) {
+async function POST_raw(request: NextRequest, { params }: ShiftContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -78,10 +80,9 @@ export async function POST(request: NextRequest, { params }: ShiftContext) {
     if (error instanceof PlanError) {
       return errorResponse(error.code, error.message, error.status, error.issues);
     }
-    console.error(
-      "[api/plans/shift] shift failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/plans/shift] shift failed:", errorFields(error));
     return errorResponse("plans_failed", "Could not shift that plan.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

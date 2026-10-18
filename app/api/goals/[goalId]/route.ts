@@ -8,6 +8,8 @@ import { deleteGoal, GoalError, updateGoal } from "@/lib/goals/queries";
 import { createClient } from "@/lib/supabase/server";
 import { updateGoalSchema } from "@/lib/validation/goals";
 import { z } from "zod";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type GoalItemContext = { params: Promise<{ goalId: string }> };
 
@@ -31,7 +33,7 @@ const goalIdSchema = z.uuid();
  * | 409 | `{ "error": { "code": "duplicate_goal" } }` |
  * | 500 | `{ "error": { "code": "goal_update_failed" } }` |
  */
-export async function PATCH(request: NextRequest, { params }: GoalItemContext) {
+async function PATCH_raw(request: NextRequest, { params }: GoalItemContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -82,7 +84,7 @@ export async function PATCH(request: NextRequest, { params }: GoalItemContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/goals] update failed:", error);
+    logError("[api/goals] update failed:", errorFields(error));
     return errorResponse(
       "goal_update_failed",
       "The goal could not be updated. Please try again.",
@@ -90,6 +92,8 @@ export async function PATCH(request: NextRequest, { params }: GoalItemContext) {
     );
   }
 }
+
+export const PATCH = withLogging(PATCH_raw);
 
 /**
  * DELETE /api/goals/[goalId] — remove one of the caller's own goals.
@@ -106,7 +110,7 @@ export async function PATCH(request: NextRequest, { params }: GoalItemContext) {
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "goal_delete_failed" } }` |
  */
-export async function DELETE(
+async function DELETE_raw(
   request: NextRequest,
   { params }: GoalItemContext,
 ) {
@@ -133,7 +137,7 @@ export async function DELETE(
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/goals] delete failed:", error);
+    logError("[api/goals] delete failed:", errorFields(error));
     return errorResponse(
       "goal_delete_failed",
       "The goal could not be deleted. Please try again.",
@@ -141,3 +145,5 @@ export async function DELETE(
     );
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

@@ -8,6 +8,8 @@ import {
 } from "@/lib/notifications/queries";
 import { notificationIdSchema } from "@/lib/notifications/validation";
 import { createClient } from "@/lib/supabase/server";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ReadContext = { params: Promise<{ notificationId: string }> };
 
@@ -29,7 +31,7 @@ type ReadContext = { params: Promise<{ notificationId: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "notifications_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ReadContext) {
+async function POST_raw(request: NextRequest, { params }: ReadContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest, { params }: ReadContext) {
       );
     }
     if (error instanceof NotificationQueryError) {
-      console.error("[api/notifications/read] failed:", error);
+      logError("[api/notifications/read] failed:", errorFields(error));
       return errorResponse(
         "notifications_failed",
         "That notification could not be updated.",
@@ -73,3 +75,5 @@ export async function POST(request: NextRequest, { params }: ReadContext) {
     throw error;
   }
 }
+
+export const POST = withLogging(POST_raw);

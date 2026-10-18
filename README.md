@@ -384,7 +384,7 @@ Tailwind CSS 4 migration (removing the `tailwindcss@3` → `chokidar` → `brace
 
 ##  Testing
 
-Current suite: **778 unit** (60 files), **265 integration** (15 files), **38 e2e**
+Current suite: **1510 unit** (134 files), **418 integration** (23 files), **38 e2e**
 (11 specs).
 
 - `npm test` (alias `npm run test:unit`) runs `vitest run` over `tests/unit/**` in the
@@ -526,6 +526,9 @@ npm ci
 | `npm test` / `npm run test:unit` | Unit suite (no network, no stack needed) |
 | `npm run test:integration` | Integration suite (needs the local stack + `db reset`) |
 | `npm run test:e2e` | Playwright e2e (needs the local stack + Chromium) |
+| `npm run check:env` | Static check: every `process.env` read in `lib/`/`app/` is covered by `.env.example` (also runs in CI) |
+| `npm run smoke` | Five HTTP checks against a running server: `/api/health`, `/api/health/ready`, `/api/metrics`, error-envelope `request_id` echo, malformed `x-request-id` replacement (`SMOKE_BASE_URL`) |
+| `npm run load:sanity` | Load smoke: `LOAD_TOTAL` requests at `LOAD_CONCURRENCY`, p50/p95/p99, fails below 99% success (`LOAD_BASE_URL`) |
 
 ### Local Supabase
 
@@ -547,6 +550,7 @@ commands.
 | [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) | What every endpoint accepts and returns |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, security coverage, known limitations |
 | [docs/local-supabase.md](docs/local-supabase.md) | Local database: schema, grants, policies, verification |
+| [docs/RELEASE.md](docs/RELEASE.md) | Launch checklist, environment matrix, retention and backup/restore drills |
 | [docs/PR_ROADMAP.md](docs/PR_ROADMAP.md) · [docs/milestones.md](docs/milestones.md) | What shipped, what is next, in what order |
 | [docs/prs/](docs/prs/) | Per-PR specifications and reconciliation notes |
 | [tests/integration/README.md](tests/integration/README.md) · [tests/e2e/README.md](tests/e2e/README.md) | How the suites run and what they prove |
@@ -602,6 +606,9 @@ unique study alias once, then discover public rooms and create your own.
 | `GET /api/resources/[id]/download` | signed in, can read it | `200 { url, expires_in: 300, resource_id }` — authorization is re-checked on every call; `404 not_found` for a missing, deleted or foreign file, `429 rate_limited` |
 | `DELETE /api/resources/[id]` | uploader | `200 { deleted: true }`; object removed before the row; `404 not_found` for anyone else's file, `429 rate_limited`, `500 cleanup_failed` / `delete_failed` |
 | `POST /api/resources/cleanup` | signed in (room scope: member) | Sweep one scope for orphaned bytes left behind by failed writes: `200 { removed_objects, removed_rows, scope, room_id }`; objects/rows younger than 60 s are skipped in both directions; `400` validation, `404` for a room you are not in, `429 rate_limited` |
+| `GET /api/health` | public | Liveness: `200 { status: "ok", version, uptime_s }`; never contacts the database or storage |
+| `GET /api/health/ready` | public | Readiness: `200 { status: "ok", checks: { db, storage } }` or `503 degraded` with the failing dependency named (2 s probe timeout) |
+| `GET /api/metrics` | public | Single-instance 300 s window: per-route counts, error counts by status, p50/p95; routes normalized (`:id`) so no identifier appears |
 
 Endpoints that consume scarce resources — reports, blocks, mutes, invitation
 creation and the file endpoints above — additionally answer `429 rate_limited`

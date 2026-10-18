@@ -11,6 +11,8 @@ import {
 import { isOwnedBy, removeResourceObject } from "@/lib/resources/storage";
 import { createClient } from "@/lib/supabase/server";
 import { resourceIdSchema } from "@/lib/validation/resources";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ResourceContext = { params: Promise<{ id: string }> };
 
@@ -31,7 +33,7 @@ type ResourceContext = { params: Promise<{ id: string }> };
  * if the database operation fails after Storage removal, retrying can
  * converge because Storage deletion is idempotent.
  */
-export async function DELETE(
+async function DELETE_raw(
   request: NextRequest,
   { params }: ResourceContext,
 ) {
@@ -99,10 +101,7 @@ export async function DELETE(
       );
 
       if (roleError) {
-        console.error(
-          "[api/resources] moderation role check failed:",
-          roleError.message,
-        );
+        logError("[api/resources] moderation role check failed:", { error_message: roleError.message });
 
         throw new Error("Moderation role check failed");
       }
@@ -140,10 +139,7 @@ export async function DELETE(
       );
 
       if (deleteError) {
-        console.error(
-          "[api/resources] moderated delete failed:",
-          deleteError.message,
-        );
+        logError("[api/resources] moderated delete failed:", { error_message: deleteError.message });
 
         throw new ResourceError(
           "delete_failed",
@@ -186,7 +182,7 @@ export async function DELETE(
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/resources] delete failed:", error);
+    logError("[api/resources] delete failed:", errorFields(error));
 
     return errorResponse(
       "delete_failed",
@@ -195,3 +191,5 @@ export async function DELETE(
     );
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

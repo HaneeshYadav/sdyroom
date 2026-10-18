@@ -12,6 +12,8 @@ import {
   planIdSchema,
   planItemIdSchema,
 } from "@/lib/validation/planner";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ItemContext = { params: Promise<{ planId: string; itemId: string }> };
 
@@ -35,7 +37,7 @@ type ItemContext = { params: Promise<{ planId: string; itemId: string }> };
  * | 409 | `{ "error": { "code": "plan_not_active" } }` |
  * | 500 | `{ "error": { "code": "plans_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ItemContext) {
+async function POST_raw(request: NextRequest, { params }: ItemContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -79,10 +81,9 @@ export async function POST(request: NextRequest, { params }: ItemContext) {
     if (error instanceof PlanError) {
       return errorResponse(error.code, error.message, error.status, error.issues);
     }
-    console.error(
-      "[api/plans/item/done] toggle failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/plans/item/done] toggle failed:", errorFields(error));
     return errorResponse("plans_failed", "Could not update that item.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

@@ -7,6 +7,8 @@ import {
 import { leaveRoom, MembershipError } from "@/lib/rooms/membership";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type LeaveContext = { params: Promise<{ id: string }> };
 
@@ -31,7 +33,7 @@ type LeaveContext = { params: Promise<{ id: string }> };
  * `member_count` is the aggregate seat usage for a public room and `null` for
  * a private one, so private occupancy is never disclosed.
  */
-export async function POST(request: NextRequest, { params }: LeaveContext) {
+async function POST_raw(request: NextRequest, { params }: LeaveContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest, { params }: LeaveContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/leave] failed:", error);
+    logError("[api/rooms/leave] failed:", errorFields(error));
     return errorResponse(
       "leave_failed",
       "You could not leave this room. Please try again.",
@@ -71,3 +73,5 @@ export async function POST(request: NextRequest, { params }: LeaveContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

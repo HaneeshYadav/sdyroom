@@ -9,6 +9,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { memberAliasSchema } from "@/lib/validation/moderation";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ModeratorContext = {
   params: Promise<{ id: string; alias: string }>;
@@ -32,21 +34,25 @@ type ModeratorContext = {
  * | 409 | `{ "error": { "code": "cannot_moderate_owner" } }` |
  * | 500 | `{ "error": { "code": "moderation_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ModeratorContext) {
+async function POST_raw(request: NextRequest, { params }: ModeratorContext) {
   return setModeratorFlag(request, params, true);
 }
+
+export const POST = withLogging(POST_raw);
 
 /**
  * DELETE /api/rooms/[id]/members/[alias]/moderator — revoke a moderator
  * grant. Same contract as POST; `role: "student"` + `changed: true` means
  * the grant is gone.
  */
-export async function DELETE(
+async function DELETE_raw(
   request: NextRequest,
   { params }: ModeratorContext,
 ) {
   return setModeratorFlag(request, params, false);
 }
+
+export const DELETE = withLogging(DELETE_raw);
 
 async function setModeratorFlag(
   request: NextRequest,
@@ -110,7 +116,7 @@ async function setModeratorFlag(
       );
     }
 
-    console.error("[api/rooms/members/moderator] failed:", error);
+    logError("[api/rooms/members/moderator] failed:", errorFields(error));
     return errorResponse(
       "moderation_failed",
       "That moderator grant could not be changed. Please try again.",
