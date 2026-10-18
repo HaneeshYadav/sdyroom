@@ -1,8 +1,74 @@
 # PR 20 — Profile and settings (alias, exam targets, language, notification prefs)
 
-**Status:** specification only — no GitHub PR exists.
-**Owner:** Dev B (Cursor) · **Complexity:** Small · **Migration:** none (widens nothing; `profiles` grants already exist)
+**Status:** implemented — [GitHub PR #25](https://github.com/chanukyareddygopala07/sdyroom/pull/25) (`0091113`).
+**Owner:** Dev B (Cursor) · **Complexity:** Small · **Migration:** `0023_profile_language.sql` (adds nullable `profiles.language`; the spec's anticipated `0017` number was stale by the time this lane started)
 **Depends on:** nothing to start (parallel lane); soft: PR 19 (settings page layout/slot), PR 11 (notification preference schema to surface)
+
+**Implementation notes / deviations** (reconciled during the build):
+
+1. **Migration `0023_profile_language.sql`** — the spec's core trap came
+   true: `profiles` never had a `language` column (0014–0022 had already
+   claimed the numbers, hence `0023`). One nullable `language text` column,
+   trimmed, 1–40 chars (structural checks only — the vocabulary lives in
+   code so widening it never needs a migration), revoke-then-grant column
+   privileges (`anon` re-revoked, `authenticated` gains explicit
+   select/insert/update on the column, additive to the existing profile
+   grants). `npx supabase db reset` passes; column, constraints and grants
+   are probe-verified by the integration suite.
+2. **Alias rules follow the schema, not this spec's stale premise.** The
+   spec says 1–40 chars with uniqueness *not* enforced; `0001_init.sql`
+   actually enforces 1–32 (CHECK), a tighter charset (start alphanumeric,
+   trimmed, no control chars) and **case-insensitive uniqueness** via the
+   `profiles_alias_lower_key` index. The shared `aliasSchema` was reused
+   untouched — this PR does not weaken or widen constraints — so the real
+   contract is 1–32, uniqueness enforced, `409 alias_taken` on collision.
+   The underlying product question still stands: aliases are display names
+   in rosters; whether two students may ever share one (or names get
+   reserved) remains a standing question, as does the avatar question
+   (both out of scope here).
+3. **Missing-row PATCH answers `404 not_found`**, not the spec's
+   insert-with-defaults note: `profiles.alias` is `NOT NULL` with no
+   default, so no honest defaults row exists, and the settings page already
+   redirects a session without a row to `/onboarding`.
+4. **`409 alias_taken` added to the spec's error table** (its premise was
+   uniqueness-not-enforced); `403 forbidden` is surfaced too when RLS
+   refuses the write inside `updateProfileSettings`.
+5. **Vocabulary invented, as the spec directed — values recorded here.**
+   No closed set existed anywhere (room `exam_track`/`language` are free
+   text server-side; discovery's filter options are data-driven), so
+   `lib/vocab/exam-tracks.ts` = `NEET`, `JEE`, `UPSC`, `SSC`, `CAT`,
+   `GATE` (max 3 selections) and `lib/vocab/languages.ts` = `English`,
+   `Hindi`, `Hinglish`, `Telugu`, `Tamil` (title case, matching existing
+   fixtures). Settings and `room-create-form` render both lists from these
+   constants (anti-drift equality test); **room server-side validation
+   stays permissive** so existing rooms and API callers are unaffected;
+   the room *settings* edit form stays free text because existing rows can
+   hold values outside the closed list. Expanding either list later is a
+   standing product question.
+6. **PR 11's form is mounted, not reimplemented.** The spec's
+   `notification-form.tsx` wrapper is skipped: PR 11's `PreferencesForm`
+   (endpoint, enum, save/status semantics — its own comment says it was
+   written to be absorbed) is mounted unchanged. Labels are disambiguated
+   for the shared page ("Save study details" vs 11's "Save preferences";
+   a unique success string), and an integration test proves the
+   single-source rule: prefs set to `invite: none` here are what the
+   real invite producer consults (it creates no notification row).
+7. **`settings-nav.tsx` skipped** — headings suffice for a four-section
+   page (the spec's own "only if long enough" condition).
+8. **Sign-out redirects to `/auth/login`** (the spec's `/sign-in` route
+   does not exist), through the repo's existing `LogoutButton`.
+9. **`GET /api/profile` is new** — no equivalent session/user endpoint
+   existed under `app/api/`. The onboarding `POST /api/profile` response
+   shape (`{id, alias}`) is untouched; the privacy suite pins it.
+10. **Rate limit `profile:{userId}` = 30 / 60 s** through PR 10's shared
+    limiter, taken after validation, `429` + `Retry-After`.
+11. **Mobile-viewport e2e deferred with PR 19** (the shell it reflows
+    against has not merged). The email-change UI is explanatory copy, not
+    a link: no Supabase site URL is configured in this environment, so no
+    link could be honest.
+12. **File naming:** `components/settings/study-preferences-form.tsx`
+    (targets + language) — a plain `preferences-form.tsx` would collide
+    with PR 11's component in imports and review.
 
 ---
 
@@ -288,20 +354,20 @@ docs/milestones.md, README.md
 
 ### Acceptance criteria
 
-- [ ] Alias, exam targets and language are editable and persist; the roster
+- [x] Alias, exam targets and language are editable and persist; the roster
       reflects an alias change on refresh.
-- [ ] Protected fields (`email`, `user_id`, `created_at`) cannot be changed
+- [x] Protected fields (`email`, `user_id`, `created_at`) cannot be changed
       through `PATCH` — asserted with a hostile body.
-- [ ] Vocabularies are shared constants; a hand-crafted out-of-vocabulary
+- [x] Vocabularies are shared constants; a hand-crafted out-of-vocabulary
       value is rejected server-side.
-- [ ] Notification preferences set here are the ones PR 11's writer consults
+- [x] Notification preferences set here are the ones PR 11's writer consults
       (or the handoff is explicitly stated if 11 is not merged).
-- [ ] Email is read-only with a documented path to change it (Supabase Auth).
-- [ ] Sign-out works and the app is unreachable afterwards.
-- [ ] Every form has associated labels, `role="alert"` errors and
+- [x] Email is read-only with a documented path to change it (Supabase Auth).
+- [x] Sign-out works and the app is unreachable afterwards.
+- [x] Every form has associated labels, `role="alert"` errors and
       `role="status"` success.
-- [ ] Rate limit returns `429` under abuse with a friendly message.
-- [ ] All three suites + build green locally and in CI.
+- [x] Rate limit returns `429` under abuse with a friendly message.
+- [x] All three suites + build green locally and in CI.
 
 ### Definition of Done
 

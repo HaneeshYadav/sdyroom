@@ -801,6 +801,67 @@ the rate limits their parent mutation routes already carry.
 
 ---
 
+## Profile and settings (PR 20)
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `GET` | `/api/profile` | The caller's own profile row, shaped for the settings page |
+| `PATCH` | `/api/profile` | Partial edit of `alias`, `exam_targets` and/or `language` |
+
+Both routes are id-less: identity comes from the session claims, so there is
+no profile id in any URL or body and no foreign id to forge. `GET` answers
+`200 { profile: { alias, exam_targets, language, notification_prefs, email,
+created_at } }` — `email` comes from the session claims (the `profiles`
+table stores none), `created_at` is cut to a date at render time
+(`iso.slice(0, 10)`, never a locale-dependent format), and
+`notification_prefs` is read back through this response so the settings page
+and PR 11's writer share exactly one store. Read-only GETs are unthrottled
+(the repo's rule for own-row reads).
+
+`PATCH` takes a strict partial body: unknown keys are `400 validation`
+(before any rate-limit take), an empty object is `400 invalid_request` (the
+same rule as the goal `PATCH`), an absent key leaves its field alone, and
+`language: null` clears the preference. No row is not an error to paper over
+— it answers `404 not_found` (the session has not finished onboarding; the
+settings page redirects to `/onboarding` instead of calling).
+
+| Error | Code |
+| --- | --- |
+| 400 | `validation` (unknown fields, out-of-vocabulary `exam_targets`/`language`, alias out of bounds) · `invalid_request` (empty body) |
+| 401 | `unauthenticated` |
+| 403 | `forbidden` (RLS refused the write) |
+| 404 | `not_found` (profile row absent) |
+| 409 | `alias_taken` (case-insensitive collision — `profiles_alias_lower_key`) |
+| 429 | `rate_limited` (`profile:{userId}`, 30 / 60 s, `Retry-After`) |
+| 500 | `profile_read_failed` / `profile_update_failed` |
+
+Field contracts:
+
+- `alias` — 1–32 chars, trimmed, start alphanumeric, no control characters,
+  **case-insensitively unique** (shared `aliasSchema`, the `0001` CHECKs and
+  the `profiles_alias_lower_key` index are the authority; collisions are
+  `409`, and whether duplicates should ever be permitted again is a standing
+  product question, not a gap).
+- `exam_targets` — 0–3 values from `lib/vocab/exam-tracks.ts` (`NEET`,
+  `JEE`, `UPSC`, `SSC`, `CAT`, `GATE`); a hand-crafted value outside the
+  list is `400` and the row is untouched.
+- `language` — from `lib/vocab/languages.ts` (`English`, `Hindi`,
+  `Hinglish`, `Telugu`, `Tamil`) or `null`; the column itself only carries
+  the structural 1–40 trimmed checks (`0023`), so widening the list is a
+  code change, never a migration.
+- `notification_prefs` — never written by this route; it is produced only by
+  `PATCH /api/profile/notification-prefs` (PR 11) and consumed here.
+
+Protected fields are rejected by the strict schema (`id`, `user_id`,
+`email`, `created_at`, `updated_at` in a body → `400 validation`), and the
+database floor agrees: the `profiles` column grants name their columns
+explicitly, so none of those fields has an `update` grant at all — the
+integration suite probes PostgREST directly, gets `42501`, and confirms the
+row is byte-identical. There is no public profile route anywhere:
+`GET /api/profile` returns only the session's own row.
+
+---
+
 ## AI document foundation (PR 12)
 
 | Method | Path | Summary |
@@ -1511,6 +1572,7 @@ and proceeds only while the take returns `true`.
 | `POST /api/rooms/[id]/ask` (PR 13, one full RAG pass per question) | `ask:{roomId}:{userId}` | 20 / 60 s |
 | `POST /api/rooms/[id]/generate` · `POST …/generate/[artifactId]/step` (PR 14, each one full generation pass) | `generate:{roomId}:{userId}` | 10 / 60 s |
 | `POST /api/plans` · `POST /api/plans/[planId]/step` (PR 15, each one full generation pass) | `plan:{roomId\|personal}:{userId}` | 10 / 60 s |
+| `PATCH /api/profile` (PR 20, own-row settings edits) | `profile:{userId}` | 30 / 60 s |
 
 These numbers are part of the contract (`lib/rate-limit/keys.ts` is the
 implementation mirror); change both together. The per-user/per-target split on
@@ -1541,7 +1603,7 @@ the caller sent one — the `x-request-id` echoed back.
 
 | Concern | Status |
 | --- | --- |
-| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10 + PR 12 + PR 13 + PR 14): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes, invitations, the AI ingest/sweep routes, ask, and generate/step. Session-gated pages and paginated reads are deliberately unthrottled (including `GET /api/ai/usage`, artifact/attempt/due listings); PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
+| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10 + PR 12 + PR 13 + PR 14 + PR 15 + PR 20): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes, invitations, the AI ingest/sweep routes, ask, generate/step, plan create/step, and profile edits. Session-gated pages and paginated reads are deliberately unthrottled (including `GET /api/ai/usage`, artifact/attempt/due listings); PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
 | Malware scanning | **Not implemented and not claimed.** Only signature/UTF-8 validation runs. |
 | Metadata editing (`PATCH`) | Not exposed. The `UPDATE` grant and policy exist and are exercised by the integration suite so the column set is provably narrow; no UI or endpoint needs renaming yet. |
 | Public/permanent file URLs | Never. Only short-lived signed URLs. |

@@ -17,12 +17,12 @@ import {
   CAPACITY_DEFAULT,
   CAPACITY_MAX,
   CAPACITY_MIN,
-  EXAM_TRACK_MAX,
-  LANGUAGE_MAX,
   ROOM_NAME_MAX,
   SHARED_GOAL_MAX,
   SUBJECT_MAX,
 } from "@/lib/validation/rooms";
+import { EXAM_TRACKS } from "@/lib/vocab/exam-tracks";
+import { LANGUAGES } from "@/lib/vocab/languages";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -194,14 +194,24 @@ export function RoomCreateForm({
               <div className="grid gap-2 sm:grid-cols-3">
                 <div className="grid gap-2">
                   <Label htmlFor="exam_track">Exam track</Label>
-                  <Input
+                  {/* Closed vocabulary (lib/vocab/exam-tracks.ts) — the same
+                      list the settings multi-select offers, so the two
+                      surfaces cannot drift. Server-side room validation stays
+                      permissive on purpose: rooms created before this list
+                      (or through the API) keep their historical values. */}
+                  <Select
                     id="exam_track"
                     name="exam_track"
-                    placeholder="JEE"
-                    maxLength={EXAM_TRACK_MAX}
                     value={examTrack}
                     onChange={(e) => setExamTrack(e.target.value)}
-                  />
+                  >
+                    <option value="">No exam track</option>
+                    {EXAM_TRACKS.map((track) => (
+                      <option key={track} value={track}>
+                        {track}
+                      </option>
+                    ))}
+                  </Select>
                   <FieldError message={fieldErrors.exam_track} />
                 </div>
                 <div className="grid gap-2">
@@ -218,14 +228,22 @@ export function RoomCreateForm({
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="language">Language</Label>
-                  <Input
+                  {/* Same shared list as /settings (lib/vocab/languages.ts);
+                      server-side room validation stays permissive for
+                      pre-existing rooms. */}
+                  <Select
                     id="language"
                     name="language"
-                    placeholder="English"
-                    maxLength={LANGUAGE_MAX}
                     value={language}
                     onChange={(e) => setLanguage(e.target.value)}
-                  />
+                  >
+                    <option value="">Not specified</option>
+                    {LANGUAGES.map((lang) => (
+                      <option key={lang} value={lang}>
+                        {lang}
+                      </option>
+                    ))}
+                  </Select>
                   <FieldError message={fieldErrors.language} />
                 </div>
               </div>

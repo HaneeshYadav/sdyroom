@@ -136,9 +136,19 @@ per-user SM-2-lite schedule), three own/visible-row select policies with
 SECURITY DEFINER functions, and `select` on all three is column-scoped so a
 wildcard fails on privilege grounds.
 
+`supabase/migrations/0023_profile_language.sql` adds the one column PR 20
+needed: `profiles.language` — nullable (no preference is the default, every
+existing row stays valid), trimmed, 1–40 chars (`profiles_language_len` and
+`profiles_language_trimmed` CHECKs). Structural checks only: the closed
+vocabulary lives in `lib/vocab/languages.ts` at the API boundary, so
+widening the list never needs a migration. Grants follow the same discipline
+as `0001`/`0012` — `revoke all … from anon` re-asserts the floor, then
+explicit column privileges `select`/`insert`/`update (language)` to
+`authenticated`, additive to the profile grants that already exist.
+
 | Table | Key columns | Notes |
 | --- | --- | --- |
-| `profiles` | `id` → `auth.users`, `alias`, `exam_targets`, `notification_prefs`, `created_at` | No email, no auth metadata, no other PII. `alias` 1–32 chars, trimmed, unique on `lower(alias)` (case-insensitive, no `citext`). `exam_targets` is a `jsonb` array, default `'[]'`. `notification_prefs` (`0012`) is a `jsonb` object of per-category values from `all`/`mentions_and_invites`/`none` plus a `default` key (default `'{"default": "all"}'`), writable only through a narrow column-level `UPDATE` grant. |
+| `profiles` | `id` → `auth.users`, `alias`, `exam_targets`, `language`, `notification_prefs`, `created_at` | No email, no auth metadata, no other PII. `alias` 1–32 chars, trimmed, unique on `lower(alias)` (case-insensitive, no `citext`). `exam_targets` is a `jsonb` array, default `'[]'`. `language` (`0023`) is nullable, trimmed, ≤ 40 chars (values from `lib/vocab/languages.ts`, enforced at the API). `notification_prefs` (`0012`) is a `jsonb` object of per-category values from `all`/`mentions_and_invites`/`none` plus a `default` key (default `'{"default": "all"}'`), writable only through a narrow column-level `UPDATE` grant. |
 | `rooms` | `id`, `owner_id` → `auth.users`, `visibility`, `name`, `capacity`, `exam_track`, `subject`, `language`, `status`, `shared_goal`, `created_at`, `updated_at` | `visibility` ∈ `public`/`private`; `status` ∈ `open`/`closed` (default `open`); `capacity` 1–100 (default 4); name 1–100 chars trimmed. Partial index on public rooms by `created_at desc`. The discovery keyset and filter columns gained four more public-scoped indexes in `0022` (`rooms_visibility_created_id_idx (visibility, created_at desc, id desc)` plus one per `lower(subject)`/`lower(exam_track)`/`lower(language)`), and `last_activity_at` is derived inside `list_public_rooms` from the two activity sources — no column is stored or maintained. |
 | `room_members` | PK `(room_id, user_id)`, `role`, `joined_at` | `role` ∈ `owner`/`student` (default `student`). `room_id` and `user_id` both `ON DELETE CASCADE`. Index on `user_id`. |
 | `focus_sessions` | `id`, `room_id` → `rooms`, `state`, `duration_seconds`, `started_at`, `ends_at`, `paused_at`, `paused_seconds`, `ended_at` | `state` ∈ `running`/`paused`/`completed`/`expired`. Partial unique index `focus_sessions_one_active (room_id) where state in ('running','paused')` — at most one active session per room, concurrency-safe. CHECKs pair `paused ⇔ paused_at` and `terminal ⇔ ended_at`, and require `ends_at > started_at`. Selected by `authenticated` only; every write goes through the RPCs. |
@@ -181,7 +191,7 @@ Grants are explicit and column-aware (`auto_expose_new_tables = false` in
 | Grantee | `profiles` | `rooms` | `room_members` | `focus_sessions` | `study_goals` | `room_messages` | `study_resources` | `room_invitations` | `moderation_reports` | `moderation_actions` | `room_moderators` | `room_mutes` | `user_blocks` |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `anon` | none | none | none | none | none | none | none | none | none | none | none | none | none |
-| `authenticated` | `SELECT/INSERT` on `(id, alias, exam_targets, notification_prefs, created_at)`, `UPDATE` on `(alias, exam_targets)` and on `(notification_prefs)` separately | `SELECT`, `INSERT` | `SELECT`, `INSERT` | `SELECT` | `SELECT`, `INSERT`, `DELETE`, `UPDATE (title, target_seconds, target_count, status)` | `SELECT`, `INSERT` | `SELECT` / `INSERT` / `UPDATE (title, subject, chapter)` / `DELETE`, each on an explicit column list — **never `owner_id`** | `SELECT` (whole table — the policy reads `inviter_id`/`invitee_id`, and Postgres checks privileges on every column a policy touches); **no write verb at all** | **none** | **none** | **none** | `SELECT` | `SELECT` |
+| `authenticated` | `SELECT/INSERT` on `(id, alias, exam_targets, language, notification_prefs, created_at)`, `UPDATE` on `(alias, exam_targets)` and on `(notification_prefs)` and on `(language)` separately | `SELECT`, `INSERT` | `SELECT`, `INSERT` | `SELECT` | `SELECT`, `INSERT`, `DELETE`, `UPDATE (title, target_seconds, target_count, status)` | `SELECT`, `INSERT` | `SELECT` / `INSERT` / `UPDATE (title, subject, chapter)` / `DELETE`, each on an explicit column list — **never `owner_id`** | `SELECT` (whole table — the policy reads `inviter_id`/`invitee_id`, and Postgres checks privileges on every column a policy touches); **no write verb at all** | **none** | **none** | **none** | `SELECT` | `SELECT` |
 | `service_role` | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges | no data privileges |
 
 `rate_limits` (`0010`) is deliberately absent from that table: it holds **no
@@ -737,15 +747,20 @@ All against the local stack. Structural:
 
 ```bash
 npx supabase db lint --local        # exit 0: "No schema errors found"
-npx supabase db reset               # exit 0: applied 0001 … 0022
-npx supabase migration list --local # 0001 … 0022 present locally
+npx supabase db reset               # exit 0: applied 0001 … 0023
+npx supabase migration list --local # 0001 … 0023 present locally
 ```
 
 Observed from `pg_catalog` / `information_schema` on 127.0.0.1:54322:
 
-- RLS enabled on all twenty-two `public` tables (`relrowsecurity = t`),
+- RLS enabled on all twenty-four `public` tables (`relrowsecurity = t`),
   including the three `0019` quiz tables (`study_artifacts`, `quiz_attempts`,
-  `flashcard_reviews`).
+  `flashcard_reviews`) and the two `0020` plan tables (`study_plans`,
+  `plan_items`). `0023` adds no table — only `profiles.language`.
+- `profiles.language` (`0023`): nullable `text`, CHECKs `profiles_language_len`
+  (1–40) and `profiles_language_trimmed`; column privileges
+  `select`/`insert`/`update (language)` for `authenticated`, and `anon`
+  holds nothing on `profiles` (the migration's `revoke all` re-asserts it).
 - 33 table policies on `public.*`, every one `to authenticated`; the `0019`
   migration adds three select policies (`study_artifacts_select_member`,
   `quiz_attempts_select_own`, `flashcard_reviews_select_own`) and, like `0013`/

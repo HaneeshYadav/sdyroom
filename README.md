@@ -91,6 +91,9 @@ Level Security, Storage, Realtime).
   preview page that 404s a private room exactly like a missing one (PR 17)
 -  Member safety: reports, one-way blocks, mutes, member removal, owner-appointed
   room moderators, and a moderation inbox that never shows the reporter
+-  Profile & settings: a student edits their study alias (reflected in the
+  header and room rosters), exam targets and preferred language from shared
+  vocabularies, notification preferences, and reads their account email (PR 20)
 - Light and dark themes
 
 ###  In Review
@@ -103,6 +106,10 @@ Level Security, Storage, Realtime).
 -  Advanced room discovery (PR 17, GitHub PR #23) — URL-driven search,
   filters and sorts over public rooms only, cursor paging, and a
   public-safe preview page; see the [Roadmap](#roadmap) for status
+-  Profile & settings (PR 20, GitHub PR #25) — alias editing that reaches
+  the header and rosters, exam targets/language from shared vocabularies,
+  the notification preferences form and account details on one page; see
+  the [Roadmap](#roadmap) for status
 
 <a name="planned"></a>
 
@@ -384,8 +391,8 @@ Tailwind CSS 4 migration (removing the `tailwindcss@3` → `chokidar` → `brace
 
 ##  Testing
 
-Current suite: **1510 unit** (134 files), **418 integration** (23 files), **38 e2e**
-(11 specs).
+Current suite: **1559 unit** (138 files), **430 integration** (24 files), **78 e2e**
+(20 specs).
 
 - `npm test` (alias `npm run test:unit`) runs `vitest run` over `tests/unit/**` in the
   Node environment. It never contacts Supabase and passes without a local stack running.
@@ -407,13 +414,17 @@ Current suite: **1510 unit** (134 files), **418 integration** (23 files), **38 e
   the bucket's own oversized-put refusal independent of the app,
   upload/delete/sweep `429`s, both orphan-sweep directions, the quota chain
   including a two-upload race resolved by the database trigger, and the
-  signed-download serve review) —
+  signed-download serve review), profile settings (alias/targets/language
+  persistence with read-back, a hostile body refused with the row
+  byte-identical, the database floor on protected fields, roster reflection
+  for a room-mate, preferences honored by the real invite producer, and the
+  `profile:{userId}` window) —
   every suite shares a single control test that widens a grant and rolls it back.
   It needs
   the local stack (`npx supabase start && npx supabase db reset`) and never uses a
   service-role key. `passWithNoTests` stays unset, so a missing suite still exits
   non-zero. See `tests/integration/README.md`.
-- `npm run test:e2e` runs `playwright test` over `tests/e2e/**` — 38 Chromium tests
+- `npm run test:e2e` runs `playwright test` over `tests/e2e/**` — 78 Chromium tests
   driving the real app (`next dev`) against the local stack: the full two-student
   workflow through the forms, private-room access, room chat, room presence across
   two browsers, the invitation lifecycle (invite by alias → inbox → accept, stranger
@@ -427,7 +438,11 @@ Current suite: **1510 unit** (134 files), **418 integration** (23 files), **38 e
   documented refusal codes for anonymous, non-member and plain-member API
   attempts), and resource hardening (oversize/extension preflights failing in the
   browser, the quota line and quota-full locking, and a spent upload window
-  answered with `429` + `Retry-After`). Test users are scoped to a per-run id and deleted
+  answered with `429` + `Retry-After`), and settings (the alias change
+  announced and reflected in the header and the room roster, exam targets and
+  language persisted across a read-back, a notification preference surviving a
+  reload, invalid aliases surfacing inline `role="alert"` errors, and sign-out
+  from the account section guarding the app afterwards). Test users are scoped to a per-run id and deleted
   by the global teardown (which also removes this run's storage objects before its
   `auth.users` rows). It needs the local stack plus `npx playwright install chromium`.
   See `tests/e2e/README.md`.
@@ -571,9 +586,12 @@ unique study alias once, then discover public rooms and create your own.
 | `/rooms` | signed in | Public room discovery with a `?q=` search over name, subject and exam track; rooms you belong to link straight into their workspace |
 | `/rooms/new` | signed in, alias chosen | Create a room via `POST /api/rooms` and enter its workspace |
 | `/invitations` | signed in | Your invitation inbox: accept or reject invitations addressed to your alias |
+| `/settings` | signed in | Profile alias, exam targets, language, notification preferences and the account section; alias changes reach the header and rosters after refresh |
 | `/rooms/[id]/settings` | room owner | Rename the room, edit its details, adjust capacity, open/close it, and the type-the-name delete danger zone; `notFound()` for anyone who is not the owner |
 | `GET /api/rooms` | signed in | Shaped public rooms, `401` when unauthenticated |
 | `POST /api/profile` | signed in | Creates the profile row, `409 alias_taken` on a case-insensitive collision |
+| `GET /api/profile` | signed in | The caller's own profile for the settings page; `404 not_found` before onboarding |
+| `PATCH /api/profile` | signed in | Partial `alias` / `exam_targets` / `language` edit; `409 alias_taken`, `400` on unknown fields or an empty body, `429` at 30 per minute |
 | `POST /api/rooms` | signed in, alias chosen | `401` / `400 validation` / `403 onboarding_required` / `201` |
 | `POST /api/rooms/[id]/join` | signed in | `201 joined` / `200 already_member`; `404 not_found` for a missing or private room, `409 room_closed` / `room_full`, `400` for a non-UUID id or any field in the body |
 | `POST /api/rooms/[id]/leave` | signed in | `200 left`; `404 not_found`, `409 owner_cannot_leave` / `not_a_member`, `400` as above |
