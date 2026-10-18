@@ -19,13 +19,13 @@ Working log: what has landed, what each milestone still owes.
 | Room management — `0008_room_management.sql` (`update_room` / `delete_room` RPCs, room-owner storage sweep policy), owner-only settings page, `PATCH`/`DELETE /api/rooms/[id]`, type-the-name delete confirmation | `61a99a0` (PR #8) | done |
 | Member safety — `0009_moderation.sql` (reports, one-way blocks, mutes enforced by the insert policy, member removal, owner-appointed moderators, audit trail), moderation inbox, shared report dialog, roster action menu | `1be4633` (PR #9) | done |
 | Resource hardening — `0010_resource_hardening.sql` (`rate_limits` + `rate_limit_take`, 1 GiB/500 MiB quotas with the `study_resources_quota_guard` trigger, `resource_quota`/`resource_quota_ok`), rate limits on uploads/deletes/downloads/sweeps/reports/blocks/mutes/invites, `POST /api/resources/cleanup`, quota line + quota-full state in the upload UI | `06cfea4` (PR #10) | done |
-| Responsive shell & accessibility — skip link, `#main` landmark, route-change focus, mobile hamburger + off-canvas Sheet fed by the same nav-links list, 44px primary/icon buttons, auth-form `role="alert"` + `aria-invalid`/`aria-describedby`, real `h1` on auth/onboarding, AA error/warning text tokens, `prefers-reduced-motion`, focus timer announces transitions only | `b3acb0f` (PR #13, spec PR 19) | in review |
-| Notifications — `0012_notifications.sql` (`notifications` table with own-row RLS and **no `INSERT` grant for any role**, two SECURITY DEFINER producers with a closed rule table, prefs checked at write time, dedupe by partial unique index, invoker's-rights `notifications_unread_count()`, service-role-only `prune_notifications`), reader routes (`GET /api/notifications`, `unread-count`, `read`, `read-all`, `PATCH /api/profile/notification-prefs`), the invite + moderation producers retrofitted, header bell with a live badge (postgres_changes + focus/60s polling fallback), inbox page carrying the preferences form | `684a7bf` (PR #15, spec PR 11) | in review |
-| AI study planner — `0020_study_plans.sql` (`study_plans`/`plan_items`, one-active + one-generating partial unique indexes, `create_plan`/`generate_plan`/`fail_plan`/`archive_plan`/`shift_plan`/`mark_plan_item`/`complete_plan_day`/`plan_stats` RPCs), `/planner` page (setup form, generating panel, day-grouped checklist with progress and CSV export, two-step shift/archive), 7 plan API routes, plan prompt + deterministic mock provider, signals wired to the merged tables (`study_goals`, `quiz_attempts`/`study_artifacts`) | (PR #21, spec PR 15) | in review |
-| Study analytics — `0021_analytics.sql` (`analytics_me` / `analytics_room` SECURITY DEFINER RPCs, revoke-first grants, two supporting indexes), `/analytics` dashboard (summary strip, focus/accuracy charts, goal ring, plan-vs-actual, range switcher, CSV), `/rooms/[id]/analytics` owner-and-moderator panel with identical-404 gating, 3 analytics API routes (`/me`, `/me.csv`, `/rooms/[id]`) | (PR #22, spec PR 16) | in review |
-| Advanced room discovery — `0022_discovery_indexes.sql` (`list_public_rooms` / `room_preview` / `room_filter_options` SECURITY DEFINER RPCs, revoke-first grants, five supporting indexes), `/rooms` browse page (debounced URL-bound search, subject/exam/language/size filters, five sorts, active-filter chips, cursor `Load more`), `/rooms/[id]/preview` public-safe detail page with identical-404 gating, extended `GET /api/rooms` (`{ rooms, has_more, next_cursor }`) and new `GET /api/rooms/[id]/preview` | (PR #23, spec PR 17) | in review |
-| Production hardening — `withLogging` on all 73 route exports (one JSON access line per request), request-id resolution in `proxy.ts` (sole writer of `x-user-id`) with `request_id` in the error envelope, centralized redaction (`lib/server/log.ts`), health/readiness/metrics endpoints (`/api/health`, `/api/health/ready`, `/api/metrics`), `instrumentation.ts` + `app/error.tsx`, outbound timeout/retry/failure-guard policy (`lib/server/http.ts`) wired into OpenAI and storage, `npm run check:env` + `smoke` + `load:sanity` scripts, `docs/RELEASE.md` runbook (env matrix, retention, restore drill) | (PR #24, spec PR 18) | in review |
-| Profile & settings — `0023_profile_language.sql` (nullable `profiles.language`, trimmed/≤40 CHECKs, additive column grants), `/settings` page (alias / exam targets + language / PR-11 notifications / account sections), `GET` + `PATCH /api/profile` (strict body, `409 alias_taken`, `profile:{userId}` 30/60 s), shared `lib/vocab/{exam-tracks,languages}.ts` wired into settings and room creation, `SettingsNavLink` in the shell | (PR #25, spec PR 20) | in review |
+| Responsive shell & accessibility — skip link, `#main` landmark, route-change focus, mobile hamburger + off-canvas Sheet fed by the same nav-links list, 44px primary/icon buttons, auth-form `role="alert"` + `aria-invalid`/`aria-describedby`, real `h1` on auth/onboarding, AA error/warning text tokens, `prefers-reduced-motion`, focus timer announces transitions only | `e175d35` (PR #13, spec PR 19) | done |
+| Notifications — `0012_notifications.sql` (`notifications` table with own-row RLS and **no `INSERT` grant for any role**, two SECURITY DEFINER producers with a closed rule table, prefs checked at write time, dedupe by partial unique index, invoker's-rights `notifications_unread_count()`, service-role-only `prune_notifications`), reader routes (`GET /api/notifications`, `unread-count`, `read`, `read-all`, `PATCH /api/profile/notification-prefs`), the invite + moderation producers retrofitted, header bell with a live badge (postgres_changes + focus/60s polling fallback), inbox page carrying the preferences form | `31fb670` (PR #15, spec PR 11) | done |
+| AI study planner — `0020_study_plans.sql` (`study_plans`/`plan_items`, one-active + one-generating partial unique indexes, `create_plan`/`generate_plan`/`fail_plan`/`archive_plan`/`shift_plan`/`mark_plan_item`/`complete_plan_day`/`plan_stats` RPCs), `/planner` page (setup form, generating panel, day-grouped checklist with progress and CSV export, two-step shift/archive), 7 plan API routes, plan prompt + deterministic mock provider, signals wired to the merged tables (`study_goals`, `quiz_attempts`/`study_artifacts`) | `e53822d` (PR #21, spec PR 15) | done |
+| Study analytics — `0021_analytics.sql` (`analytics_me` / `analytics_room` SECURITY DEFINER RPCs, revoke-first grants, two supporting indexes), `/analytics` dashboard (summary strip, focus/accuracy charts, goal ring, plan-vs-actual, range switcher, CSV), `/rooms/[id]/analytics` owner-and-moderator panel with identical-404 gating, 3 analytics API routes (`/me`, `/me.csv`, `/rooms/[id]`) | `bf10460` (PR #22, spec PR 16) | done |
+| Advanced room discovery — `0022_discovery_indexes.sql` (`list_public_rooms` / `room_preview` / `room_filter_options` SECURITY DEFINER RPCs, revoke-first grants, five supporting indexes), `/rooms` browse page (debounced URL-bound search, subject/exam/language/size filters, five sorts, active-filter chips, cursor `Load more`), `/rooms/[id]/preview` public-safe detail page with identical-404 gating, extended `GET /api/rooms` (`{ rooms, has_more, next_cursor }`) and new `GET /api/rooms/[id]/preview` | `51af6fd` (PR #23, spec PR 17) | done |
+| Production hardening — `withLogging` on all 73 route exports (one JSON access line per request), request-id resolution in `proxy.ts` (sole writer of `x-user-id`) with `request_id` in the error envelope, centralized redaction (`lib/server/log.ts`), health/readiness/metrics endpoints (`/api/health`, `/api/health/ready`, `/api/metrics`), `instrumentation.ts` + `app/error.tsx`, outbound timeout/retry/failure-guard policy (`lib/server/http.ts`) wired into OpenAI and storage, `npm run check:env` + `smoke` + `load:sanity` scripts, `docs/RELEASE.md` runbook (env matrix, retention, restore drill) | `859837c` (PR #24, spec PR 18) | done |
+| Profile & settings — `0023_profile_language.sql` (nullable `profiles.language`, trimmed/≤40 CHECKs, additive column grants), `/settings` page (alias / exam targets + language / PR-11 notifications / account sections), `GET` + `PATCH /api/profile` (strict body, `409 alias_taken`, `profile:{userId}` 30/60 s), shared `lib/vocab/{exam-tracks,languages}.ts` wired into settings and room creation, `SettingsNavLink` in the shell | `7b3c2e2` (PR #25, spec PR 20) | done |
 
 ## Milestone D — task breakdown
 
@@ -485,15 +485,17 @@ Working log: what has landed, what each milestone still owes.
   and no search beyond the title/subject/chapter filters (the per-scope quota
   line shipped in PR 10).
 - **Responsive + accessible baseline shipped (PR 19 / GitHub #13); a full WCAG
-  audit has not.** Under `md:` the inline header links give way to a labelled
+  audit still has not.** Under `md:` the inline header links give way to a labelled
   hamburger and an off-canvas sheet (same nav-links list both places), every
   audited page reflows at 375 px without horizontal scrolling, form failures
   are `role="alert"` and tied to their fields, and the focus timer announces
-  transitions instead of every countdown tick. Deliberately not done: an
-  axe/Lighthouse sweep of every component, tablet-specific layouts beyond the
+  transitions instead of every countdown tick. PR 21 added automated axe scans
+  (WCAG 2.1 A/AA) over the public, auth, discovery, settings and workspace
+  surfaces. Deliberately not done: an axe/Lighthouse sweep of every component,
+  tablet-specific layouts beyond the
   `md:` breakpoint, and a redesign of the top nav into a sidebar — the audit
   spec assumed a sidebar that the app never had.
-- **Notifications foundation in review (PR 11 / GitHub #15).** One `notifications`
+- **Notifications foundation shipped (PR 11 / GitHub #15).** One `notifications`
   table with own-row RLS and no `INSERT` grant for any application role, two
   SECURITY DEFINER producers (`invite_created` and the moderation trio) behind
   a closed rule table, preferences honored at write time, dedupe of unread
@@ -503,8 +505,8 @@ Working log: what has landed, what each milestone still owes.
   `prune_notifications` retention function (rows accumulate until one is
   configured), producers for AI/resource events (the types are reserved and
   the RPCs accept them; the emitting features do not exist yet), and the
-  settings-page mount for the preferences form — it lives on the inbox page
-  until PR 20 lands, unchanged and ready to move.
+  settings-page mount for the preferences form — it lived on the inbox page
+  until PR 20, which mounted it under `/settings` where it remains unchanged.
 - **AI milestones V–VII: the foundation landed in PR 12, and VI + VII have
   shipped.** The provider
   abstraction (`lib/ai/config.ts` + OpenAI-compatible and mock providers,
@@ -529,3 +531,63 @@ Working log: what has landed, what each milestone still owes.
   ships its own UI, endpoints and tests. With no provider key configured the
   whole pipeline runs on the mock provider, so every milestone above can be
   developed and tested without secrets.
+
+## PR 21 — final quality and coverage (delivery inventory)
+
+Spec: [`docs/prs/PR-21-quality-coverage-baseline.md`](prs/PR-21-quality-coverage-baseline.md).
+Branch `test/final-quality-coverage`. Everything below was verified by
+running the gate, not by editing a checkbox.
+
+- [x] Coverage tooling: `npm run test:coverage` (vitest, `lib/**` +
+      `app/api/**`, lcov + text + json-summary) with **statements 74% /
+      branches 64%** floors (measured 75.56% / 66.01% minus 1pp); CI fails
+      below the floor (demonstrated: floor set to 99 → exit 1) and uploads
+      `coverage/lcov.info`.
+- [x] `check:counts` (`scripts/check-doc-counts.mjs`) + unit tests: README
+      suite line, integration/e2e README file tables, SECURITY `(N)`s;
+      demonstrated drift failure (exit 1, message names the row).
+- [x] `check:links` (`scripts/check-doc-links.mjs`) + unit tests:
+      demonstrated broken-link failure (exit 1, message names file:line).
+- [x] CI: quality job = lint → env → types → coverage+counts+links → build;
+      integration job = real stack + JSON report + counts; e2e job
+      unchanged. No repository secrets.
+- [x] Contributor docs: `AGENTS.md` (root), `docs/DEVELOPMENT.md`,
+      `.github/PULL_REQUEST_TEMPLATE.md`; `docs/ARCHITECTURE.md` refreshed
+      (24-table model, AI/notification realtime, coverage/doc gates,
+      env-var table); `docs/RELEASE.md` range updated to `0001`–`0023`.
+- [x] Lint ratchet: `no-console` in `app/**/page.tsx` + `app/api/**`,
+      `dangerouslySetInnerHTML` banned in JSX, exactly four baseline
+      `eslint-disable`s listed in `AGENTS.md`.
+- [x] Axe e2e scans (WCAG 2.1 A/AA) on `/`, `/auth/login`, `/rooms`,
+      `/settings` and the room workspace — green after fixing the disabled
+      "Quizzes & decks" `aria-label`/visible-text mismatch.
+- [x] Rate limits wired with tests and docs: messages 30/60
+      (`message:{roomId}:{userId}`), room creation 5/60
+      (`room_create:user:{userId}`), notification prefs 30/60
+      (`notification_prefs:{userId}`).
+- [x] Audit defect fixes (session-authorized deviations from the spec's
+      "no behaviour change" rule), each with a regression test:
+      `/auth/confirm` open-redirect hardening + OTP-type allow-list; login
+      error copy; plan-setup busy-state; resource-library `initialHasMore`;
+      room-settings save-lock + field `aria-invalid`/`aria-describedby`;
+      notifications inbox/bell recovery on refused writes; goals
+      pending-id/trim handling; chat 401 → honest "Not sent."; `--success`
+      AA token; bell button 44 px.
+- [x] Status syncs: milestone rows 13/15/21/22/23/24/25 → done with merge
+      SHAs; roadmap statuses → merged; API_CONTRACTS/SECURITY rate-limit
+      enumerations extended.
+
+### Route fallback inventory (`loading.tsx` / `error.tsx`)
+
+| Route | Before PR 21 | After PR 21 |
+| --- | --- | --- |
+| `/invitations` | neither | `loading.tsx` + `error.tsx` added |
+| `/onboarding` | neither | `loading.tsx` + `error.tsx` added |
+| `/resources` | `error.tsx` only | `loading.tsx` added |
+| `/rooms/new` | neither (parent `rooms/error.tsx` mislabelled it as discovery) | `loading.tsx` + `error.tsx` added |
+| everything else (`/`, `/rooms`, `/rooms/[id]` + subpages, `/settings`, `/analytics`, `/planner`, `/notifications`) | already had the boundaries they need | unchanged |
+
+Deliberate remainder: `/rooms` (discovery) has an `error.tsx` but no
+`loading.tsx` — its first paint is a server-rendered list that arrives with
+the page, so a skeleton was not added; an owner who wants one can follow the
+`/settings` pattern.

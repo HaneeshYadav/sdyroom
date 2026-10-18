@@ -467,7 +467,7 @@ describe("RoomChat", () => {
     expect(mocks.fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("sends the viewer to login when a send meets a 401", async () => {
+  it("sends the viewer to login when a send meets a 401 and never leaves the row Sending (PR 21)", async () => {
     renderChat();
     await flush();
 
@@ -477,6 +477,8 @@ describe("RoomChat", () => {
     });
 
     expect(mocks.router.push).toHaveBeenCalledWith("/auth/login");
+    expect(screen.queryByText("Sending…")).toBeNull();
+    expect(screen.getByText("Not sent.")).toBeTruthy();
   });
 
   it("keeps participant presence hidden", async () => {

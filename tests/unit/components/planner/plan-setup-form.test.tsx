@@ -286,6 +286,9 @@ describe("PlanSetupForm", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Finish your active plan first.",
     );
+    expect(
+      screen.getByRole("button", { name: "Generate plan" }),
+    ).toBeEnabled();
 
     rerender(
       <PlanSetupForm

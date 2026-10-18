@@ -11,6 +11,8 @@ import { messagesQuerySchema, sendMessageSchema } from "@/lib/validation/chat";
 import { roomIdSchema } from "@/lib/validation/rooms";
 import { withLogging } from "@/lib/server/with-logging";
 import { errorFields, logError } from "@/lib/server/log";
+import { rateLimitedResponse } from "@/lib/rate-limit/check";
+import { messageSpec } from "@/lib/rate-limit/keys";
 
 type MessagesContext = { params: Promise<{ id: string }> };
 
@@ -101,6 +103,7 @@ export const GET = withLogging(GET_raw);
  * | 400 | `{ "error": { "code": "validation" \| "invalid_json" } }` |
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 404 | `{ "error": { "code": "not_found" } }` |
+ * | 429 | `{ "error": { "code": "rate_limited" } }` + `Retry-After` |
  * | 500 | `{ "error": { "code": "message_create_failed" } }` |
  */
 async function POST_raw(request: NextRequest, { params }: MessagesContext) {
@@ -128,6 +131,15 @@ async function POST_raw(request: NextRequest, { params }: MessagesContext) {
   const parsedMessage = sendMessageSchema.safeParse(parsedBody.body);
   if (!parsedMessage.success) {
     return validationResponse(parsedMessage.error);
+  }
+
+  const limited = await rateLimitedResponse(
+    supabase,
+    messageSpec(parsedRoomId.data, claims.sub),
+    "You're sending messages too quickly. Pause a moment and try again.",
+  );
+  if (limited) {
+    return limited;
   }
 
   try {

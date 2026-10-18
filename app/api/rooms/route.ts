@@ -15,6 +15,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createRoomSchema, roomDiscoverySchema } from "@/lib/validation/rooms";
 import { withLogging } from "@/lib/server/with-logging";
 import { errorFields, logError } from "@/lib/server/log";
+import { rateLimitedResponse } from "@/lib/rate-limit/check";
+import { roomCreateSpec } from "@/lib/rate-limit/keys";
 
 /**
  * GET /api/rooms — public room discovery (PR 17).
@@ -84,7 +86,8 @@ export const GET = withLogging(GET_raw);
 /**
  * POST /api/rooms — creates a room through the create_room RPC.
  * 401 without a session, 403 before onboarding, 400 on invalid fields.
- * The owner is never accepted from the client.
+ * The owner is never accepted from the client. Bounded at
+ * ROOM_CREATE_LIMIT per account (`429` + `Retry-After` when spent).
  */
 async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
@@ -107,6 +110,15 @@ async function POST_raw(request: NextRequest) {
   const parsedRoom = createRoomSchema.safeParse(parsedBody.body);
   if (!parsedRoom.success) {
     return validationResponse(parsedRoom.error);
+  }
+
+  const limited = await rateLimitedResponse(
+    supabase,
+    roomCreateSpec(claims.sub),
+    "You're creating rooms too quickly. Pause a moment and try again.",
+  );
+  if (limited) {
+    return limited;
   }
 
   try {

@@ -5,6 +5,7 @@ import { aiConfig, AI_DEMO_BANNER } from "@/lib/ai/config";
 import { listAskDocuments, type AskDocument } from "@/lib/ai/ask";
 import { utcTodayIso } from "@/lib/planner/dates";
 import { getPlan, listPlans, PlanError, type PlanDetail } from "@/lib/planner/plans";
+import { errorFields, logError } from "@/lib/server/log";
 import { createClient } from "@/lib/supabase/server";
 import { planIdSchema } from "@/lib/validation/planner";
 import { roomIdSchema } from "@/lib/validation/rooms";
@@ -123,7 +124,7 @@ export default async function PlannerPage({ searchParams }: PlannerPageProps) {
     documents = await listAskDocuments(supabase, roomId).catch((error: unknown) => {
       // Display-only: without the list the form still generates a
       // topic-based plan; the API validates any ids that are sent.
-      console.error("[planner/page] document list failed:", error);
+      logError("[planner/page] document list failed:", errorFields(error));
       return [];
     });
   }

@@ -74,7 +74,7 @@ describe("auth form accessibility wiring", () => {
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Invalid login credentials");
+    expect(alert).toHaveTextContent("Email or password is incorrect.");
     expect(alert).toHaveAttribute("id", "login-error");
     for (const field of [
       screen.getByLabelText("Email"),

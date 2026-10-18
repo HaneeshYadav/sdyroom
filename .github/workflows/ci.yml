@@ -42,8 +42,28 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
-      - name: Unit tests
-        run: npm test
+      # Coverage run doubles as the unit gate: the text reporter prints the
+      # usual summary, the JSON report feeds the doc-count check, and the
+      # vitest thresholds (74% statements / 64% branches) fail the job if the
+      # server-side surface regresses.
+      - name: Unit tests (coverage)
+        run: npm run test:coverage -- --reporter=default --reporter=json --outputFile.json=unit-results.json
+
+      # Doc/test drift: README suite line, README file tables, and the
+      # SECURITY.md per-file counts must match what actually exists.
+      - name: Documentation counts
+        run: npm run check:counts -- --unit-json=unit-results.json
+
+      - name: Documentation links
+        run: npm run check:links
+
+      - name: Upload coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          retention-days: 7
 
       # No environment variables on purpose: the build must not depend on a
       # reachable Supabase project, and no secrets exist in this repository.
@@ -98,7 +118,13 @@ jobs:
         run: npx supabase db reset
 
       - name: Run integration tests
-        run: npm run test:integration
+        run: npm run test:integration -- --reporter=default --reporter=json --outputFile.json=integration-results.json
+
+      # SECURITY.md per-file integration counts and the integration README
+      # totals are only checkable against a real run's JSON, so this gate
+      # lives here rather than in the quality job.
+      - name: Documentation counts (integration)
+        run: npm run check:counts -- --integration-json=integration-results.json
 
       # Production-shape gate: the same build operators run, probed by the
       # smoke script (health, readiness, metrics, request-id envelope).

@@ -1,6 +1,7 @@
 import { ResourceLibrary } from "@/components/resources/resource-library";
 import { fetchResourceQuota } from "@/lib/resources/quota";
 import { listResources } from "@/lib/resources/queries";
+import { errorFields, logError } from "@/lib/server/log";
 import { createClient } from "@/lib/supabase/server";
 import { RESOURCE_PAGE_SIZE_DEFAULT } from "@/lib/validation/resources";
 import { redirect } from "next/navigation";
@@ -41,7 +42,7 @@ export default async function ResourcesPage() {
     // opens (the upload route and the DB trigger remain the enforcement),
     // so a quota outage never becomes a listing outage.
     fetchResourceQuota(supabase, null).catch((error: unknown) => {
-      console.error("[resources/page] quota fetch failed:", error);
+      logError("[resources/page] quota fetch failed:", errorFields(error));
       return null;
     }),
   ]);
@@ -50,6 +51,7 @@ export default async function ResourcesPage() {
     <ResourceLibrary
       scope={{ kind: "personal" }}
       initialResources={page.resources}
+      initialHasMore={page.has_more}
       quota={quota}
       idPrefix="personal"
       heading="My resources"

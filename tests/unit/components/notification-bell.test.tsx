@@ -247,4 +247,30 @@ describe("NotificationBell", () => {
       expect(push).toHaveBeenCalledWith("/auth/login");
     });
   });
+  it("restores the badge when a mark-read write is refused (PR 21)", async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input);
+      if (url.includes(`/${ROW.id}/read`)) {
+        return Promise.resolve(jsonResponse(500, { error: {} }));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { notifications: [ROW], unread_count: 1 }),
+      );
+    });
+
+    render(<NotificationBell userId="u1" initialUnreadCount={1} />);
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    await waitFor(() => {
+      expect(screen.getByTestId("notification-row")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("link", { name: /Invitation to Quiet Hall/ }));
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(
+        urls.filter((url) => url === `/api/notifications/${ROW.id}/read`),
+      ).toHaveLength(1);
+      expect(urls).toContain("/api/notifications/unread-count");
+    });
+  });
 });

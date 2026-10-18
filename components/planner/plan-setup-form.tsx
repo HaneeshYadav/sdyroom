@@ -168,6 +168,9 @@ export function PlanSetupForm({
       const planId = body?.plan?.id;
 
       if (!response.ok || typeof planId !== "string") {
+        // Nothing will re-mount this form (no refresh is coming), so the
+        // button must come back or a failed create leaves the user stuck.
+        setBusy(false);
         setError(
           body?.error?.message ??
             "The plan could not be created. Please try again.",

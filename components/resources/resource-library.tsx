@@ -82,6 +82,7 @@ function SkeletonRows({ count }: { count: number }) {
 export function ResourceLibrary({
   scope,
   initialResources,
+  initialHasMore,
   quota,
   idPrefix,
   heading,
@@ -90,6 +91,8 @@ export function ResourceLibrary({
 }: {
   scope: ResourceScope;
   initialResources: StudyResource[];
+  /** Exact cursor flag from the server's first page (not a length guess). */
+  initialHasMore: boolean;
   /** Storage quota for this scope; `null` when the numbers could not be read. */
   quota: ResourceQuota | null;
   idPrefix: string;
@@ -102,7 +105,7 @@ export function ResourceLibrary({
   const isRoom = scope.kind === "room";
 
   const [resources, setResources] = useState<StudyResource[]>(initialResources);
-  const [hasMore, setHasMore] = useState(false);
+  const [hasMore, setHasMore] = useState(initialHasMore);
   // `draft` drives the inputs; `applied` is what the current list actually
   // reflects. Keeping them apart means a failed search does not rewrite the
   // empty state into "no files match" while an unfiltered list is still shown.

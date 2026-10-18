@@ -18,5 +18,34 @@ export default defineConfig({
     ],
     setupFiles: ["./tests/setup.ts"],
     clearMocks: true,
+    // PR 21: coverage measures the server-side surface only — lib/ and the
+    // API routes. UI components are covered by the unit suites' behavioural
+    // assertions but are deliberately outside the numeric floor (the numbers
+    // would drown real server-code regressions). Integration tests run
+    // against the real stack under a separate config and are never folded
+    // into this figure; the rule is documented in docs/DEVELOPMENT.md.
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "json-summary"],
+      reportsDirectory: "coverage",
+      include: ["lib/**/*.ts", "app/api/**/*.ts"],
+      exclude: [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/types.ts",
+        "next-env.d.ts",
+        "**/__mocks__/**",
+        "**/mocks/**",
+        "**/test-utils.ts",
+      ],
+      // PR 21 floors: measured baseline on 2026-10-18 was 75.5% statements /
+      // 65.95% branches; floor = baseline − 1pp, rounded down, so coverage
+      // cannot regress silently. Ratchet upward in later PRs — never lower
+      // these numbers without a written reason in the PR description.
+      thresholds: {
+        statements: 74,
+        branches: 64,
+      },
+    },
   },
 });

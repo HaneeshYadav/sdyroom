@@ -142,10 +142,14 @@ export function NotificationBell({
       // a write still in flight when the document unloads would be cancelled —
       // the optimistic badge would then hide a row the server still counts
       // unread, and nothing on the landing page would ever re-read it.
-      await fetch(`/api/notifications/${id}/read`, {
+      const response = await fetch(`/api/notifications/${id}/read`, {
         method: "POST",
         keepalive: true,
       });
+      if (!response.ok) {
+        void refreshCount();
+        return;
+      }
     } catch {
       void refreshCount();
     }
@@ -157,10 +161,15 @@ export function NotificationBell({
       rows?.map((row) => ({ ...row, read_at: row.read_at ?? new Date().toISOString() })) ?? rows,
     );
     try {
-      await fetch("/api/notifications/read-all", {
+      const response = await fetch("/api/notifications/read-all", {
         method: "POST",
         keepalive: true,
       });
+      if (!response.ok) {
+        void refreshCount();
+        void refreshList();
+        return;
+      }
     } catch {
       void refreshCount();
     }
@@ -179,7 +188,7 @@ export function NotificationBell({
           <Button
             variant="ghost"
             size="sm"
-            className="relative size-9 p-0"
+            className="relative size-11 p-0"
             aria-label={
               unreadCount > 0
                 ? `${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`

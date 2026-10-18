@@ -37,7 +37,7 @@ Two rules define the codebase:
 
 | Path | Responsibility |
 | --- | --- |
-| `app/(app)/*` | Signed-in pages (rooms, workspace, resources, invitations). Pages `export const instant = false` (the app runs with `cacheComponents`) and are session-gated by `lib/supabase/proxy.ts`. |
+| `app/(app)/*` | Signed-in pages (rooms and the workspace, resources, invitations, settings, analytics, planner, onboarding). Pages `export const instant = false` (the app runs with `cacheComponents`) and are session-gated by `lib/supabase/proxy.ts`; most carry `loading.tsx`/`error.tsx` boundaries. |
 | `app/api/*` | Route handlers. Validate with Zod, map domain errors onto the single error envelope, never touch SQL directly. |
 | `components/*` | Presentational + client-interactive components. They fetch through `lib/` query modules or the documented `/api/*` endpoints; they never construct storage URLs or identity fields themselves. |
 | `lib/validation/*` | Zod schemas mirroring the database CHECK constraints — trim before length, blank → `null`, no identity fields. |
@@ -45,16 +45,16 @@ Two rules define the codebase:
 | `lib/rooms/access.ts` | The shared membership/ownership gates (`requireRoomMembership`, `requireRoomOwner`) that give non-members the same `404` as a missing room. |
 | `lib/api/responses.ts` | The one error envelope: `{ error: { code, message, issues? } }`. |
 | `lib/supabase/` | `proxy.ts` (session refresh + page redirects), `server.ts` (cookie-scoped server client), `client.ts` (browser client). No service-role key exists in the repo. |
-| `supabase/migrations/` | The schema, applied only to the local stack (`npx supabase db reset`). `0001`–`0010` are append-only; existing files are never edited. |
+| `supabase/migrations/` | The schema, applied only to the local stack (`npx supabase db reset`). `0001`–`0023` are append-only; existing files are never edited. |
 | `tests/unit` | Vitest, no network: validators, queries against fake builders, every route's status matrix, component behaviour. |
 | `tests/integration` | Vitest against the real local stack with real auth users: RLS/grant probes, RPC races, HTTP-level handler tests. Never uses a service-role key (SQL fixtures go through `docker exec psql`). |
 | `tests/e2e` | Playwright + Chromium driving the real `next dev` app: two-browser flows, WebSocket frame capture/replay, teardown scoped to a per-run user id. |
-| `docs/` | `ARCHITECTURE.md` (this file), `API_CONTRACTS.md`, `SECURITY.md`, `local-supabase.md`, `milestones.md`, `PR_ROADMAP.md`, `prs/*` (per-PR specifications). |
+| `docs/` | `ARCHITECTURE.md` (this file), `API_CONTRACTS.md`, `SECURITY.md`, `DEVELOPMENT.md`, `local-supabase.md`, `RELEASE.md`, `milestones.md`, `PR_ROADMAP.md`, `prs/*` (per-PR specifications). The operational contract for contributors and agents is `AGENTS.md` at the repository root. |
 
 ## Data model
 
-Fourteen tables, all with RLS enabled, all granted explicitly column by column
-(`auto_expose_new_tables = false`):
+Twenty-four tables, all with RLS enabled, all granted explicitly column by
+column (`auto_expose_new_tables = false`):
 
 | Table | Owns |
 | --- | --- |
@@ -72,6 +72,15 @@ Fourteen tables, all with RLS enabled, all granted explicitly column by column
 | `room_moderators` | Aliases appointed by the room owner — the *only* moderator concept; there is no global role. |
 | `user_blocks` | The blocker's own rows (`blocker_id = auth.uid()` own-rows policy); RPC-only writes; read by the chat filter and the invitation accept. |
 | `rate_limits` | Fixed-window counters for the abuse controls (`0010`). The table carries no grant at all and RLS carries zero policies; the only door in is the `rate_limit_take` RPC (SECURITY DEFINER, executable by `authenticated` only). |
+| `notifications` | The in-app inbox rows (`0012`). Own-row RLS, **no `INSERT` grant for any application role** — writes travel through the two SECURITY DEFINER producers; unread counts through the invoker's-rights `notifications_unread_count()`. |
+| `study_ai_documents` | Per-resource AI ingest state machine (`0013`): `pending → extracting → chunking → embedding → ready \| failed`, provider/model bookkeeping, error codes. |
+| `document_chunks` | Chunk rows for pgvector retrieval (`0013`), read only through `match_document_chunks`. |
+| `study_qa` | Append-only per-user Q&A history (`0018`), written by `record_qa` when an ask lands. |
+| `study_artifacts` | Generated quizzes and flashcard decks (`0019`); the payload holds the answer key server-side and never leaves the room's members. |
+| `quiz_attempts` | Server-scored quiz attempts (`0019`); the client's score field is refused — `record_attempt` computes it. |
+| `flashcard_reviews` | The SM-2-lite review schedule (`0019`), one row per (user, card). |
+| `study_plans` / `plan_items` | Generated study plans (`0020`); one-active and one-generating partial unique indexes, state machine through SECURITY DEFINER RPCs. |
+| `ai_usage` | Per-user daily AI token/step accounting (`0018`/`0019`) enforcing the chat quota. |
 
 Membership flows (join, leave, invitation acceptance) all funnel through
 `SECURITY DEFINER` RPCs because an RLS `WITH CHECK` cannot take the row lock
@@ -124,13 +133,15 @@ hidden link.
 
 ## Realtime
 
-Three kinds of channels, all gated to current room members:
+Four kinds of channels, all gated to current room members or the user
+themselves:
 
 | Channel | Carries | Gate |
 | --- | --- | --- |
 | `focus-{roomId}` | `postgres_changes` on `focus_sessions` (`wait: true` so `SUBSCRIBED` implies the filter is registered) | RLS applied at delivery |
 | `room-messages-{roomId}` | `postgres_changes` on `room_messages` | RLS applied at delivery |
 | `room-presence-{roomId}` | Presence `{ alias, studying }` | `realtime.messages` policies from `0006`: topic uuid must match a current `room_members` row |
+| user-scoped notification channel | `postgres_changes` INSERT on `notifications` (`0012` publication) feeding the header bell badge | own-row RLS at delivery; a focus/60 s polling fallback covers missed frames |
 
 Nothing realtime persists: presence lives in Realtime's memory, chat and
 session frames are hints that trigger a re-read of the authoritative view.
@@ -142,11 +153,14 @@ observation, two readers, no second socket.
 
 The room workspace (`/rooms/[id]`) is one server component that seeds the
 client panels: `RoomRoster`, the owner's `RoomInvitePanel` (private rooms
-only), `FocusTimer`, `GoalsPanel`, `RoomChat`, `ResourceLibrary`, and — when
+only), `FocusTimer`, `GoalsPanel`, `RoomChat`, `ResourceLibrary`,
+`ArtifactList` (generated quizzes/decks), and — when
 the viewer is the owner or an appointed moderator — `ModerationInbox`. The
 same read also fetches the caller's moderation view (`room_moderation_info`:
 can-I-moderate, moderator aliases, mute state) and their own block list,
-which the roster menus and the chat composer consume. Each panel is
+which the roster menus and the chat composer consume. AI entry points
+("Ask my notes", "Quizzes & decks") are disabled-and-explained with no
+indexed document — never hidden. Each panel is
 keyed per room so a room switch can never show the previous room's state
 while the new request is in flight. Presence annotations are deliberately
 server-free (the roster is a page read; presence is a client store), and
@@ -169,9 +183,9 @@ addressee can see or act on them.
 
 | Suite | Runs against | Proves |
 | --- | --- | --- |
-| Unit (`npm test`) | Nothing (fakes) | Validation, shaping, error-code maps, component behaviour — fast enough to run per file in parallel workers. |
+| Unit (`npm test`) | Nothing (fakes) | Validation, shaping, error-code maps, component behaviour — fast enough to run per file in parallel workers. `npm run test:coverage` measures `lib/**` + `app/api/**` and enforces the floors (statements 74% / branches 64%). |
 | Integration (`npm run test:integration`) | The real local stack, real signups, `docker exec psql` for fixtures | RLS/grant/policy freezes, RPC races (concurrent joins, accepts, starts), HTTP-level status matrices — serialized per file so row counts are stable. |
-| E2E (`npm run test:e2e`) | `next dev` + the local stack, Chromium | Whole product flows through real forms; realtime proven by capturing and replaying WebSocket frames rather than sleeping. |
+| E2E (`npm run test:e2e`) | `next dev` + the local stack, Chromium | Whole product flows through real forms; realtime proven by capturing and replaying WebSocket frames rather than sleeping. The responsive/a11y spec drives axe scans (WCAG 2.1 A/AA) over the public, auth, discovery, settings and workspace surfaces. |
 
 Shared conventions: no service-role key in any test; users scoped to a
 per-run id and deleted by teardown; fixtures created through public RPCs or
@@ -180,9 +194,24 @@ restored with `db reset` and re-verified green.
 
 ## CI
 
-`.github/workflows/ci.yml`: `quality` (lint, types, unit, build — no env) →
-`integration` and `e2e` in parallel, each standing up its own local Supabase
-from scratch. `permissions: contents: read`, zero repository secrets.
+`.github/workflows/ci.yml`: `quality` (lint, env contract, types, unit tests
+**with coverage floors**, doc-count and doc-link checks, build — no env
+secrets; `coverage/lcov.info` uploaded as an artifact) → `integration` and
+`e2e` in parallel, each standing up its own local Supabase from scratch; the
+integration job also runs the doc-count check against its run's JSON so the
+per-file numbers in `docs/SECURITY.md` cannot drift. `permissions: contents:
+read`, zero repository secrets.
+
+## Environment variables
+
+`.env.example` is the authoritative list and `npm run check:env` fails when
+the code reads a key it does not document. The short version:
+
+| Key | Role |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | The local or hosted project; the publishable key only — no service-role key exists anywhere in the repo. |
+| `AI_PROVIDER`, `AI_API_KEY`, `AI_BASE_URL` | Server-side AI credentials; `mock` (or a missing key) runs the demo-mode pipeline with canned answers. |
+| `AI_*` model/limit keys | Optional overrides read server-side only (see `.env.example` for the exact names). |
 
 ## Where decisions live
 

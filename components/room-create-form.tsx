@@ -45,10 +45,10 @@ function toFieldErrors(issues: ApiIssue[]): Record<string, string> {
   }, {});
 }
 
-function FieldError({ message }: { message?: string }) {
+function FieldError({ id, message }: { id?: string; message?: string }) {
   if (!message) return null;
   return (
-    <p className="text-sm text-error" role="alert">
+    <p id={id} className="text-sm text-error" role="alert">
       {message}
     </p>
   );
@@ -153,8 +153,10 @@ export function RoomCreateForm({
                   maxLength={ROOM_NAME_MAX}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
+                  aria-invalid={fieldErrors.name ? true : undefined}
+                  aria-describedby={fieldErrors.name ? "create-name-error" : undefined}
                 />
-                <FieldError message={fieldErrors.name} />
+                <FieldError id="create-name-error" message={fieldErrors.name} />
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2">
@@ -171,8 +173,10 @@ export function RoomCreateForm({
                     required
                     value={capacity}
                     onChange={(e) => setCapacity(e.target.value)}
+                    aria-invalid={fieldErrors.capacity ? true : undefined}
+                    aria-describedby={fieldErrors.capacity ? "create-capacity-error" : undefined}
                   />
-                  <FieldError message={fieldErrors.capacity} />
+                  <FieldError id="create-capacity-error" message={fieldErrors.capacity} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="visibility">Visibility</Label>
@@ -183,11 +187,13 @@ export function RoomCreateForm({
                     onChange={(e) =>
                       setVisibility(e.target.value as "public" | "private")
                     }
+                    aria-invalid={fieldErrors.visibility ? true : undefined}
+                    aria-describedby={fieldErrors.visibility ? "create-visibility-error" : undefined}
                   >
                     <option value="public">Public — listed in discovery</option>
                     <option value="private">Private — unlisted</option>
                   </Select>
-                  <FieldError message={fieldErrors.visibility} />
+                  <FieldError id="create-visibility-error" message={fieldErrors.visibility} />
                 </div>
               </div>
 
@@ -204,6 +210,8 @@ export function RoomCreateForm({
                     name="exam_track"
                     value={examTrack}
                     onChange={(e) => setExamTrack(e.target.value)}
+                    aria-invalid={fieldErrors.exam_track ? true : undefined}
+                    aria-describedby={fieldErrors.exam_track ? "create-exam_track-error" : undefined}
                   >
                     <option value="">No exam track</option>
                     {EXAM_TRACKS.map((track) => (
@@ -212,7 +220,7 @@ export function RoomCreateForm({
                       </option>
                     ))}
                   </Select>
-                  <FieldError message={fieldErrors.exam_track} />
+                  <FieldError id="create-exam_track-error" message={fieldErrors.exam_track} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="subject">Subject</Label>
@@ -223,8 +231,10 @@ export function RoomCreateForm({
                     maxLength={SUBJECT_MAX}
                     value={subject}
                     onChange={(e) => setSubject(e.target.value)}
+                    aria-invalid={fieldErrors.subject ? true : undefined}
+                    aria-describedby={fieldErrors.subject ? "create-subject-error" : undefined}
                   />
-                  <FieldError message={fieldErrors.subject} />
+                  <FieldError id="create-subject-error" message={fieldErrors.subject} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="language">Language</Label>
@@ -236,6 +246,8 @@ export function RoomCreateForm({
                     name="language"
                     value={language}
                     onChange={(e) => setLanguage(e.target.value)}
+                    aria-invalid={fieldErrors.language ? true : undefined}
+                    aria-describedby={fieldErrors.language ? "create-language-error" : undefined}
                   >
                     <option value="">Not specified</option>
                     {LANGUAGES.map((lang) => (
@@ -244,7 +256,7 @@ export function RoomCreateForm({
                       </option>
                     ))}
                   </Select>
-                  <FieldError message={fieldErrors.language} />
+                  <FieldError id="create-language-error" message={fieldErrors.language} />
                 </div>
               </div>
 
@@ -257,8 +269,10 @@ export function RoomCreateForm({
                   maxLength={SHARED_GOAL_MAX}
                   value={sharedGoal}
                   onChange={(e) => setSharedGoal(e.target.value)}
+                  aria-invalid={fieldErrors.shared_goal ? true : undefined}
+                  aria-describedby={fieldErrors.shared_goal ? "create-shared_goal-error" : undefined}
                 />
-                <FieldError message={fieldErrors.shared_goal} />
+                <FieldError id="create-shared_goal-error" message={fieldErrors.shared_goal} />
               </div>
 
               {formError && (

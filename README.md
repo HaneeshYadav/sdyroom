@@ -162,7 +162,7 @@ flowchart TB
 
     subgraph SUP["Supabase — local stack in development"]
         A["Auth<br/>cookie sessions via @supabase/ssr"]
-        D[("Postgres<br/>14 tables · RLS · grants · RPCs · rate limits")]
+        D[("Postgres<br/>24 tables · RLS · grants · RPCs · rate limits")]
         S[("Storage<br/>private study-resources bucket")]
         T["Realtime<br/>chat · presence · focus sessions"]
     end
@@ -191,7 +191,7 @@ CI mirrors that shape:
 ```mermaid
 flowchart LR
     G["push / pull request"] --> C["GitHub Actions<br/>.github/workflows/ci.yml"]
-    C --> Q["quality<br/>lint · tsc · unit tests · build"]
+    C --> Q["quality<br/>lint · tsc · coverage · counts/links · build"]
     Q --> I["integration<br/>local Supabase from scratch"]
     Q --> E["e2e<br/>Playwright + Chromium"]
 ```
@@ -277,7 +277,7 @@ repository keeps the starter's root-level `app/`, `lib/` and `components/`, so t
 modules live at `lib/validation/`, `lib/rooms/`, `lib/profiles/` and `lib/api/`
 instead of `src/lib/...`. Route and test paths are otherwise unchanged.
 
-For the full directory map, data model (14 tables) and where decisions live, read
+For the full directory map, data model (24 tables) and where decisions live, read
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 <a name="security"></a>
@@ -287,7 +287,7 @@ For the full directory map, data model (14 tables) and where decisions live, rea
 - **Server-side auth gates**: pages are session-gated (middleware redirect for
   browsers, JSON `401` for APIs); every room endpoint re-checks membership, and a
   non-member gets the same `404` as a missing room (`lib/rooms/access.ts`).
-- **The database is the authority**: all 14 tables are RLS-enabled and granted
+- **The database is the authority**: all 24 tables are RLS-enabled and granted
   column by column (`auto_expose_new_tables = false`); privileged writes go through
   `SECURITY DEFINER` RPCs; there is no `USING (true)` policy anywhere, and identity
   is never accepted as a request parameter.
@@ -391,14 +391,14 @@ Tailwind CSS 4 migration (removing the `tailwindcss@3` → `chokidar` → `brace
 
 ##  Testing
 
-Current suite: **1559 unit** (138 files), **430 integration** (24 files), **78 e2e**
+Current suite: **1611 unit** (143 files), **430 integration** (24 files), **81 e2e**
 (20 specs).
 
 - `npm test` (alias `npm run test:unit`) runs `vitest run` over `tests/unit/**` in the
   Node environment. It never contacts Supabase and passes without a local stack running.
   Individual UI test files opt into jsdom with a `@vitest-environment jsdom` docblock.
 - `npm run test:integration` runs `vitest run --config vitest.integration.config.ts`
-  over `tests/integration/**` — 265 tests covering auth at the API boundary, onboarding
+  over `tests/integration/**` — 430 tests covering auth at the API boundary, onboarding
   and response privacy, RLS/grant behaviour per role, `create_room` atomicity
   (including the revoked-grant rollback), joining and capacity races, the shared focus
   timer state machine, personal-goal privacy, append-only room chat, the whole
@@ -424,7 +424,7 @@ Current suite: **1559 unit** (138 files), **430 integration** (24 files), **78 e
   the local stack (`npx supabase start && npx supabase db reset`) and never uses a
   service-role key. `passWithNoTests` stays unset, so a missing suite still exits
   non-zero. See `tests/integration/README.md`.
-- `npm run test:e2e` runs `playwright test` over `tests/e2e/**` — 78 Chromium tests
+- `npm run test:e2e` runs `playwright test` over `tests/e2e/**` — 81 Chromium tests
   driving the real app (`next dev`) against the local stack: the full two-student
   workflow through the forms, private-room access, room chat, room presence across
   two browsers, the invitation lifecycle (invite by alias → inbox → accept, stranger
@@ -447,10 +447,13 @@ Current suite: **1559 unit** (138 files), **430 integration** (24 files), **78 e
   `auth.users` rows). It needs the local stack plus `npx playwright install chromium`.
   See `tests/e2e/README.md`.
 - `.github/workflows/ci.yml` runs all three suites on every push and pull request: a
-  `quality` job (lint, types, unit tests, build — no env or secrets) and — each after
-  `quality` — an `integration` job and an `e2e` job that stand up their own isolated
-  local Supabase, apply migrations from scratch and run their suite (the e2e job also
-  installs Chromium and uploads the Playwright report on failure). All jobs use the
+  `quality` job (lint, env contract, types, unit tests with coverage floors,
+  doc-count and doc-link checks, build — no env or secrets; `coverage/lcov.info` is
+  uploaded as an artifact) and — each after
+  `quality` — an `integration` job (which also re-checks the documented
+  per-file counts against its run's JSON) and an `e2e` job that stand up their own
+  isolated local Supabase, apply migrations from scratch and run their suite (the
+  e2e job also installs Chromium and uploads the Playwright report on failure). All jobs use the
   Node version pinned in `.nvmrc`, and the workflow is `permissions: contents: read`
   with no repository secrets.
 
@@ -463,8 +466,8 @@ open a pull request.
 
 | Status | PRs |
 | --- | --- |
-|  Merged | #1–#10 — chat, realtime, focus sessions & goals, room discovery, resources, presence, invitations & roster, room management, member safety, resource security |
-|  Pending | #11–#21 — notifications, AI study assistance, richer discovery, production hardening, mobile & accessibility, profile/settings, coverage gates |
+|  Merged | #1–#25 — chat, realtime, focus sessions & goals, room discovery, resources, presence, invitations & roster, room management, member safety, resource security, notifications, the AI document/ask/quiz/planner stack, study analytics, room discovery upgrade, production hardening, mobile & accessibility, profile/settings |
+|  In progress | #26 — the quality & coverage baseline (CI floors, doc gates, contributor docs) |
 
 Details, order and acceptance criteria:
 [`docs/PR_ROADMAP.md`](docs/PR_ROADMAP.md) ·
@@ -588,7 +591,7 @@ unique study alias once, then discover public rooms and create your own.
 | `/invitations` | signed in | Your invitation inbox: accept or reject invitations addressed to your alias |
 | `/settings` | signed in | Profile alias, exam targets, language, notification preferences and the account section; alias changes reach the header and rosters after refresh |
 | `/rooms/[id]/settings` | room owner | Rename the room, edit its details, adjust capacity, open/close it, and the type-the-name delete danger zone; `notFound()` for anyone who is not the owner |
-| `GET /api/rooms` | signed in | Shaped public rooms, `401` when unauthenticated |
+| `GET /api/rooms` | signed in | `{ rooms, has_more, next_cursor }` with `q` / subject / exam track / language / size filters and five sorts over public rooms; `401` when unauthenticated |
 | `POST /api/profile` | signed in | Creates the profile row, `409 alias_taken` on a case-insensitive collision |
 | `GET /api/profile` | signed in | The caller's own profile for the settings page; `404 not_found` before onboarding |
 | `PATCH /api/profile` | signed in | Partial `alias` / `exam_targets` / `language` edit; `409 alias_taken`, `400` on unknown fields or an empty body, `429` at 30 per minute |
@@ -627,9 +630,26 @@ unique study alias once, then discover public rooms and create your own.
 | `GET /api/health` | public | Liveness: `200 { status: "ok", version, uptime_s }`; never contacts the database or storage |
 | `GET /api/health/ready` | public | Readiness: `200 { status: "ok", checks: { db, storage } }` or `503 degraded` with the failing dependency named (2 s probe timeout) |
 | `GET /api/metrics` | public | Single-instance 300 s window: per-route counts, error counts by status, p50/p95; routes normalized (`:id`) so no identifier appears |
+| `/notifications` | signed in | The notification inbox: unread list, mark read / mark all read, and the delivery-preferences form; the header bell mirrors the unread count |
+| `GET /api/notifications` · `unread-count` · `read` · `read-all` · `PATCH /api/profile/notification-prefs` | signed in | Own-row reads, the badge count, mark-read writes and preference updates; `429` on the prefs window |
+| `/planner` | signed in | AI study plans (personal or room-scoped): generate, day-grouped checklist with progress, shift/archive, CSV export |
+| `POST /api/plans` · `…/step` and the plan lifecycle routes | signed in | Plan generation over pinned documents (or topic-only), deterministic adjustments, `409` while a plan is already active, `429` generate window |
+| `/analytics` | signed in | Personal dashboard: focus and accuracy charts, goal ring, plan-vs-actual, range switcher, CSV |
+| `GET /api/analytics/me` · `me.csv` | signed in | Range-scoped summary payload and its CSV twin; `?user_id=` is ignored (no impersonation) |
+| `/rooms/[id]/analytics` | owner or moderator | Room-level counts-only panel; the same rendered `404` a missing room gives everyone else |
+| `GET /api/rooms/[id]/analytics` | owner or moderator | Room aggregates for the panel |
+| `/rooms/[id]/ask` | member | Room-scoped questions over indexed documents with citations and per-user history |
+| `POST /api/rooms/[id]/ask` | member | One full RAG pass per question; `403 no_documents_indexed`, `429` ask window, `403 ai_quota_exceeded` |
+| `/rooms/[id]/generate` · `/quizzes/[id]` · `/decks/[id]` | member | Generate quizzes and flashcard decks over indexed documents; take a server-scored quiz; review flashcards on the SM-2-lite schedule |
+| `POST /api/rooms/[id]/generate` · `…/step` · `…/quizzes/[id]/attempts` · `…/decks/[id]/review` | member | Generation, resume, attempts (the client's score is refused — the server computes it) and review writes |
+| `/resources` upload / AI status | signed in | Resource rows carry their AI ingest state (`pending → … → ready \| failed`) with a retry |
+| `POST /api/ai/ingest/[resourceId]` · `sweep` · `GET /api/ai/usage` | member | Bounded ingestion steps, the maintenance sweep and per-user usage; `429` on both AI windows |
+| `/rooms/[id]/preview` | signed in | Public-safe room detail page; a private room is the same rendered `404` a missing id gives |
+| `GET /api/rooms/[id]/preview` | signed in | The preview payload with identical `404` parity |
 
-Endpoints that consume scarce resources — reports, blocks, mutes, invitation
-creation and the file endpoints above — additionally answer `429 rate_limited`
+Endpoints that consume scarce resources — reports, blocks, mutes, invitations,
+messages, room creation, notification-preference writes, the AI routes and the file
+endpoints above — additionally answer `429 rate_limited`
 with a `Retry-After` header once their fixed-window budget is spent;
 [`docs/API_CONTRACTS.md`](docs/API_CONTRACTS.md) holds the authoritative per-endpoint
 contracts.
@@ -672,8 +692,9 @@ together, `docs/API_CONTRACTS.md` holds the endpoint contracts and
 
 Contributions are welcome. Start with
 [`CONTRIBUTING.md`](CONTRIBUTING.md) — it covers the environment setup, the exact
-gates CI runs (`npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run build`, plus
-the integration and e2e suites), and the pull-request checklist.
+gates CI runs (`npm run lint`, `npx tsc --noEmit`, `npm run test:coverage`,
+`npm run check:env`, `npm run check:counts`, `npm run check:links`, `npm run build`,
+plus the integration and e2e suites), and the pull-request checklist.
 
 - Bugs and feature requests: [open an issue](https://github.com/chanukyareddygopala07/sdyroom/issues)
 - Vulnerabilities: follow [`SECURITY.md`](SECURITY.md) instead of a public issue
