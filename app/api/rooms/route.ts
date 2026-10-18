@@ -4,15 +4,27 @@ import {
   readJsonBody,
   validationResponse,
 } from "@/lib/api/responses";
+import {
+  DiscoveryError,
+  discoveryErrorStatus,
+  searchPublicRooms,
+} from "@/lib/rooms/discovery";
 import { getProfile } from "@/lib/profiles/queries";
 import { createRoom, RoomError } from "@/lib/rooms/create";
-import { listPublicRooms } from "@/lib/rooms/queries";
 import { createClient } from "@/lib/supabase/server";
-import { createRoomSchema, roomSearchSchema } from "@/lib/validation/rooms";
+import { createRoomSchema, roomDiscoverySchema } from "@/lib/validation/rooms";
 
 /**
- * GET /api/rooms — public room discovery.
- * Requires a session (401 otherwise) and returns only public rooms.
+ * GET /api/rooms — public room discovery (PR 17).
+ * Requires a session (401 otherwise) and returns only public rooms: the
+ * `list_public_rooms` RPC hard-codes that filter, so no parameter here can
+ * widen visibility. `q`/`subject`/`exam_track`/`language`/`min_members`
+ * filter, `sort` picks the keyset (`recent`|`active`|`largest`|`name`, or
+ * `relevance` when a query is present and no sort is given), `limit` is
+ * capped at 50, and `cursor` is the opaque base64url keyset of the previous
+ * page — a malformed one is a 400 before SQL sees it. The response keeps the
+ * original `{ rooms }` fields and adds `has_more`/`next_cursor` so existing
+ * consumers stay valid.
  */
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -22,8 +34,16 @@ export async function GET(request: NextRequest) {
     return errorResponse("unauthenticated", "Sign in to list public rooms.", 401);
   }
 
-  const parsedSearch = roomSearchSchema.safeParse({
-    q: request.nextUrl.searchParams.get("q") ?? undefined,
+  const params = request.nextUrl.searchParams;
+  const parsedSearch = roomDiscoverySchema.safeParse({
+    q: params.get("q") ?? undefined,
+    subject: params.get("subject") ?? undefined,
+    exam_track: params.get("exam_track") ?? undefined,
+    language: params.get("language") ?? undefined,
+    min_members: params.get("min_members") ?? undefined,
+    sort: params.get("sort") ?? undefined,
+    limit: params.get("limit") ?? undefined,
+    cursor: params.get("cursor") ?? undefined,
   });
 
   if (!parsedSearch.success) {
@@ -31,9 +51,23 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const rooms = await listPublicRooms(supabase, parsedSearch.data);
-    return NextResponse.json({ rooms });
+    const page = await searchPublicRooms(
+      supabase,
+      parsedSearch.data,
+      parsedSearch.data.cursor,
+    );
+    return NextResponse.json({
+      rooms: page.rooms.map((room) => ({
+        ...room,
+        href: `/rooms/${room.id}/preview`,
+      })),
+      has_more: page.has_more,
+      next_cursor: page.next_cursor,
+    });
   } catch (error) {
+    if (error instanceof DiscoveryError) {
+      return errorResponse(error.code, error.message, discoveryErrorStatus(error));
+    }
     console.error("[api/rooms] list failed:", error);
     return errorResponse(
       "query_failed",

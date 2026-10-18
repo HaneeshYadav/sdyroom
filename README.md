@@ -85,6 +85,10 @@ Level Security, Storage, Realtime).
   streaks, quiz accuracy, plan progress and cards due — with a 7/30/90-day
   range switch and CSV export — plus room-level aggregates (counts and minutes
   only) for owners and moderators (PR 16)
+-  Advanced room discovery: URL-driven search, subject/exam/language/size
+  filters and sort (best match, newest, most active, largest, name) over
+  public rooms only, cursor "Load more" paging, and a public-safe room
+  preview page that 404s a private room exactly like a missing one (PR 17)
 -  Member safety: reports, one-way blocks, mutes, member removal, owner-appointed
   room moderators, and a moderation inbox that never shows the reporter
 - Light and dark themes
@@ -96,6 +100,9 @@ Level Security, Storage, Realtime).
 -  Study analytics (PR 16, GitHub PR #22) — personal dashboard with
   streaks, accuracy and CSV export, plus room aggregates for owners and
   moderators; see the [Roadmap](#roadmap) for status
+-  Advanced room discovery (PR 17, GitHub PR #23) — URL-driven search,
+  filters and sorts over public rooms only, cursor paging, and a
+  public-safe preview page; see the [Roadmap](#roadmap) for status
 
 <a name="planned"></a>
 
@@ -105,7 +112,6 @@ The ordered plan lives in [`docs/PR_ROADMAP.md`](docs/PR_ROADMAP.md) and
 [`docs/milestones.md`](docs/milestones.md); highlights:
 
 - Notifications (PR 11)
-- Richer room discovery (PR 17)
 - Production hardening — security headers/CSP, monitoring, backups, load testing
   (PR 18)
 - Mobile/responsive shell and accessibility baseline (PR 19), profile and settings

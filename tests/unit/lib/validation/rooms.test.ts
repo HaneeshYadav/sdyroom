@@ -2,7 +2,12 @@ import {
   CAPACITY_DEFAULT,
   createRoomSchema,
   roomIdSchema,
-  roomSearchSchema,
+  roomCursorActiveSchema,
+  roomCursorLargestSchema,
+  roomCursorNameSchema,
+  roomCursorRecentSchema,
+  roomCursorRelevanceSchema,
+  roomDiscoverySchema,
   updateRoomSchema,
 } from "@/lib/validation/rooms";
 import { describe, expect, it } from "vitest";
@@ -190,16 +195,105 @@ describe("updateRoomSchema", () => {
   });
 });
 
-describe("roomSearchSchema", () => {
-  it("defaults to an empty search and trims input", () => {
-    expect(roomSearchSchema.parse({})).toEqual({ q: "" });
-    expect(roomSearchSchema.parse({ q: "  calculus " })).toEqual({
-      q: "calculus",
+describe("roomDiscoverySchema", () => {
+  it("defaults to an empty search with the default page size", () => {
+    expect(roomDiscoverySchema.parse({})).toEqual({
+      q: "",
+      subject: null,
+      exam_track: null,
+      language: null,
+      min_members: 0,
+      limit: 20,
     });
   });
 
+  it("trims text filters and normalises blanks to null", () => {
+    const parsed = roomDiscoverySchema.parse({
+      q: "  calculus ",
+      subject: "  Physics ",
+      exam_track: "   ",
+    });
+
+    expect(parsed.q).toBe("calculus");
+    expect(parsed.subject).toBe("Physics");
+    expect(parsed.exam_track).toBeNull();
+  });
+
   it("rejects searches longer than the query limit", () => {
-    expect(roomSearchSchema.safeParse({ q: "a".repeat(101) }).success).toBe(
+    expect(roomDiscoverySchema.safeParse({ q: "a".repeat(101) }).success).toBe(
+      false,
+    );
+  });
+
+  it("coerces and bounds min_members and limit from query strings", () => {
+    expect(roomDiscoverySchema.parse({ min_members: "5" }).min_members).toBe(5);
+    expect(roomDiscoverySchema.safeParse({ min_members: "-1" }).success).toBe(
+      false,
+    );
+    expect(
+      roomDiscoverySchema.safeParse({ min_members: "101" }).success,
+    ).toBe(false);
+
+    expect(roomDiscoverySchema.parse({ limit: "10" }).limit).toBe(10);
+    expect(roomDiscoverySchema.safeParse({ limit: "0" }).success).toBe(false);
+    expect(roomDiscoverySchema.safeParse({ limit: "51" }).success).toBe(false);
+    expect(roomDiscoverySchema.safeParse({ limit: "1.5" }).success).toBe(false);
+  });
+
+  it("accepts only the five sort orders and keeps absent as undefined", () => {
+    expect(roomDiscoverySchema.parse({ sort: "active" }).sort).toBe("active");
+    expect(roomDiscoverySchema.parse({}).sort).toBeUndefined();
+    for (const bad of ["popular", "ACTIVE", "1", ""]) {
+      expect(roomDiscoverySchema.safeParse({ sort: bad }).success).toBe(false);
+    }
+  });
+
+  it("caps the cursor length so oversized values stop at the edge", () => {
+    expect(
+      roomDiscoverySchema.safeParse({ cursor: "a".repeat(2001) }).success,
+    ).toBe(false);
+    expect(
+      roomDiscoverySchema.parse({ cursor: "eyJmb28iOjF9" }).cursor,
+    ).toBe("eyJmb28iOjF9");
+  });
+});
+
+describe("room cursor schemas", () => {
+  const ROOM_UUID = "11111111-1111-4111-8111-111111111111";
+
+  it("accepts the documented payload for each sort", () => {
+    expect(
+      roomCursorRecentSchema.parse({ c: "2026-10-01T00:00:00Z", i: ROOM_UUID }),
+    ).toEqual({ c: "2026-10-01T00:00:00Z", i: ROOM_UUID });
+    expect(
+      roomCursorActiveSchema.parse({ c: null, i: ROOM_UUID }),
+    ).toEqual({ c: null, i: ROOM_UUID });
+    expect(roomCursorLargestSchema.parse({ m: 3, i: ROOM_UUID })).toEqual({
+      m: 3,
+      i: ROOM_UUID,
+    });
+    expect(roomCursorNameSchema.parse({ n: "Alpha", i: ROOM_UUID })).toEqual({
+      n: "Alpha",
+      i: ROOM_UUID,
+    });
+    expect(
+      roomCursorRelevanceSchema.parse({ r: 1, m: 2, i: ROOM_UUID }),
+    ).toEqual({ r: 1, m: 2, i: ROOM_UUID });
+  });
+
+  it("rejects foreign ids, missing keys, and out-of-range ranks", () => {
+    expect(
+      roomCursorRecentSchema.safeParse({ c: "2026-10-01T00:00:00Z", i: "x" })
+        .success,
+    ).toBe(false);
+    expect(roomCursorRecentSchema.safeParse({ i: ROOM_UUID }).success).toBe(
+      false,
+    );
+    expect(
+      roomCursorRelevanceSchema.safeParse({ r: 9, m: 1, i: ROOM_UUID })
+        .success,
+    ).toBe(false);
+    expect(roomCursorNameSchema.safeParse({ n: "", i: ROOM_UUID }).success).toBe(
       false,
     );
   });

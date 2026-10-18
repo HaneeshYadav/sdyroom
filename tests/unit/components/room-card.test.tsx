@@ -12,8 +12,11 @@ const ROOM_ID = "11111111-1111-4111-8111-111111111111";
 function summary(
   overrides: Partial<{
     viewer_membership: "none" | "member" | "owner";
+    viewer_role: "owner" | "student" | null;
     member_count: number;
     status: string;
+    last_activity_at: string | null;
+    language: string | null;
   }> = {},
 ) {
   return {
@@ -27,6 +30,8 @@ function summary(
     shared_goal: "Finish the syllabus.",
     created_at: "2026-01-05T10:00:00.000Z",
     member_count: 1,
+    last_activity_at: null,
+    viewer_role: null,
     viewer_membership: "none" as const,
     ...overrides,
   };
@@ -73,5 +78,45 @@ describe("RoomCard", () => {
 
     render(<RoomCard room={summary({ status: "closed" })} />);
     expect(screen.getByText("Closed")).toBeInTheDocument();
+  });
+
+  it("links the card to the preview with an accessible name of title and subject", () => {
+    render(<RoomCard room={summary()} />);
+
+    const link = screen.getByRole("link", {
+      name: "Calculus Study Room, Mathematics",
+    });
+    expect(link).toHaveAttribute("href", `/rooms/${ROOM_ID}/preview`);
+  });
+
+  it("shows a text Joined badge for the viewer's own membership", () => {
+    const { unmount } = render(
+      <RoomCard room={summary({ viewer_membership: "member" })} />,
+    );
+    expect(screen.getByText("Joined")).toBeInTheDocument();
+    unmount();
+
+    render(<RoomCard room={summary({ viewer_membership: "none" })} />);
+    expect(screen.queryByText("Joined")).not.toBeInTheDocument();
+  });
+
+  it("renders derived activity as a relative label and hides it when absent", () => {
+    const { unmount } = render(
+      <RoomCard
+        room={summary({
+          last_activity_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+        })}
+      />,
+    );
+    expect(screen.getByText(/^Active /)).toBeInTheDocument();
+    unmount();
+
+    render(<RoomCard room={summary({ last_activity_at: null })} />);
+    expect(screen.queryByText(/^Active /)).not.toBeInTheDocument();
+  });
+
+  it("keeps the seat usage on the card", () => {
+    render(<RoomCard room={summary({ member_count: 2 })} />);
+    expect(screen.getByText("2 of 4 seats taken")).toBeInTheDocument();
   });
 });

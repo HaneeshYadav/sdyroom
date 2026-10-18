@@ -11,7 +11,8 @@ import {
   type TestUser,
 } from "./helpers/users";
 
-const ROOM_KEYS = [
+/** Exactly the fields create_room returns — no discovery enrichment. */
+const CREATED_ROOM_KEYS = [
   "capacity",
   "created_at",
   "exam_track",
@@ -21,6 +22,20 @@ const ROOM_KEYS = [
   "shared_goal",
   "status",
   "subject",
+].sort();
+
+/**
+ * The discovery listing is additive over the created shape: PR 17 appends
+ * the aggregate seat count, derived activity, the viewer's own membership
+ * and the preview href. Nothing else may appear.
+ */
+const LISTED_ROOM_KEYS = [
+  ...CREATED_ROOM_KEYS,
+  "href",
+  "last_activity_at",
+  "member_count",
+  "viewer_membership",
+  "viewer_role",
 ].sort();
 
 describe("onboarding and API response privacy", () => {
@@ -158,7 +173,7 @@ describe("onboarding and API response privacy", () => {
     expect(response.status).toBe(201);
     const body = await readJson(response);
     const room = body.room as Record<string, unknown>;
-    expect(Object.keys(room).sort()).toEqual(ROOM_KEYS);
+    expect(Object.keys(room).sort()).toEqual(CREATED_ROOM_KEYS);
     expect(room.subject).toBe("Chemistry");
     expect(JSON.stringify(body)).not.toContain("owner_id");
     expect(JSON.stringify(body)).not.toContain(alice.id);
@@ -196,7 +211,7 @@ describe("onboarding and API response privacy", () => {
     expect(otherRooms.some((room) => room.name === publicName)).toBe(true);
 
     for (const room of [...ownRooms, ...otherRooms]) {
-      expect(Object.keys(room).sort()).toEqual(ROOM_KEYS);
+      expect(Object.keys(room).sort()).toEqual(LISTED_ROOM_KEYS);
       expect(JSON.stringify(room)).not.toContain("owner_id");
     }
   });

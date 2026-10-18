@@ -1,8 +1,28 @@
 # PR 17 — Room discovery improvements
 
-**Status:** specification only — no GitHub PR exists.
-**Owner:** Dev A (OpenCode) · **Complexity:** Medium · **Migration:** `0016_discovery_indexes.sql`
+**Status:** in review — GitHub PR #23, implemented on
+`feat/advanced-room-discovery` (migration `0022_discovery_indexes.sql`; the
+roadmap's `0016` number was stale and is updated).
+**Owner:** Dev A (OpenCode) · **Complexity:** Medium · **Migration:** `0022_discovery_indexes.sql`
 **Depends on:** PR 06 (presence/membership context in room cards), soft: PR 08 (`Closed` badge already lands there), PR 09 (only rooms you can be reported in are worth surfacing safely)
+
+> **Deviations from this spec, documented in the migration header and
+> `docs/API_CONTRACTS.md`:** the migration is `0022_discovery_indexes.sql` (the
+> pre-assigned `0016` number belonged to a later slot); cursor
+> decode/validation lives in the data layer (`lib/rooms/discovery.ts`) — the
+> route forwards the opaque string unchanged and a malformed or cross-sort
+> cursor is still `400` before SQL; `q` is trimmed everywhere and a blank `q`
+> behaves as absent (`relevance` without a query is still `400`);
+> list/preview expose `viewer_membership` (`owner`/`member`/`none`) rather
+> than a single `is_member` on every shape — the preview API adds `is_member`
+> *and* `viewer_role`; the browse page makes **two** data round trips (one
+> `room_filter_options` for the chips, one `list_public_rooms` for the
+> results) while the results themselves stay one RPC call with no N+1; the
+> results are a client boundary that holds only cursor-loaded extra pages —
+> the first page always comes from the server, so a join/leave
+> `router.refresh()` re-renders membership correctly; `trigram`/fuzzy search
+> is **not adopted** — recorded here as a standing question, with `ilike`
+> escaping (`%`/`_`) and the documented ranking precedence as the v1 answer.
 
 ---
 
@@ -103,7 +123,7 @@ The route must not N+1.
 
 ### Database work
 
-`supabase/migrations/0016_discovery_indexes.sql`:
+`supabase/migrations/0022_discovery_indexes.sql`:
 
 - RPC `list_public_rooms(p_q text, p_subject text, p_exam_track text,
   p_language text, p_min_members int, p_sort text, p_limit int,
@@ -270,7 +290,7 @@ count) rather than removing it.
 ### Files / modules likely affected
 
 ```
-supabase/migrations/0016_discovery_indexes.sql            (new)
+supabase/migrations/0022_discovery_indexes.sql            (new)
 app/api/rooms/route.ts                                   (extended params + RPC)
 app/api/rooms/[id]/preview/route.ts                      (new)
 app/(app)/rooms/page.tsx                                 (browse page)

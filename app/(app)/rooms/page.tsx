@@ -1,14 +1,19 @@
-import { RoomCard } from "@/components/room-card";
-import { RoomSearchForm } from "@/components/room-search-form";
+import { ActiveFilters } from "@/components/rooms/active-filters";
+import { RoomFilters } from "@/components/rooms/room-filters";
+import { RoomResults } from "@/components/rooms/room-results";
+import { RoomSearch } from "@/components/rooms/room-search";
 import { Button } from "@/components/ui/button";
 import {
-  listPublicRooms,
-  listViewerMemberships,
-  roomMemberCounts,
-} from "@/lib/rooms/queries";
-import type { RoomSummary } from "@/lib/rooms/types";
+  discoveryStateOf,
+  type DiscoveryState,
+} from "@/lib/rooms/discovery-params";
+import { getRoomFilterOptions, searchPublicRooms } from "@/lib/rooms/discovery";
 import { createClient } from "@/lib/supabase/server";
-import { roomSearchSchema, type RoomSearchInput } from "@/lib/validation/rooms";
+import {
+  roomDiscoverySchema,
+  ROOM_LIMIT_DEFAULT,
+  type RoomSearchInput,
+} from "@/lib/validation/rooms";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -21,8 +26,33 @@ export const metadata = {
 export const instant = false;
 
 type RoomsPageProps = {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const EMPTY_SEARCH: RoomSearchInput = {
+  q: "",
+  subject: null,
+  exam_track: null,
+  language: null,
+  min_members: 0,
+  sort: undefined,
+  limit: ROOM_LIMIT_DEFAULT,
+};
+
+/**
+ * Normalises repeated query keys (?q=a&q=b) to a single string before Zod
+ * sees them, so validation fails on the value rather than on an internal
+ * type error.
+ */
+function flattenParams(
+  raw: Record<string, string | string[] | undefined>,
+): Record<string, string | undefined> {
+  const flat: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    flat[key] = Array.isArray(value) ? value[0] : value;
+  }
+  return flat;
+}
 
 function ResultsSkeleton() {
   return (
@@ -35,10 +65,11 @@ function ResultsSkeleton() {
 }
 
 /**
- * Streams the room list. The session and search validation happen in the page
- * above, so a redirect still wins the race against this boundary flushing.
+ * Streams the discovery results behind the same shell the visitor already
+ * sees. Validation happened in the page above, so an invalid query renders
+ * the explained empty list without touching the database.
  */
-async function RoomsResults({
+async function ResultsSection({
   search,
   invalidQuery,
 }: {
@@ -46,57 +77,27 @@ async function RoomsResults({
   invalidQuery: boolean;
 }) {
   const supabase = await createClient();
-  const rooms = invalidQuery ? [] : await listPublicRooms(supabase, search);
-
-  if (rooms.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-        {invalidQuery
-          ? "No rooms were loaded."
-          : search.q
-            ? "No public rooms match your search."
-            : "No public rooms yet. Create the first one."}
-      </div>
-    );
-  }
-
-  // One aggregate query for seat usage plus one own-rows query for the
-  // viewer's memberships; both run without waiting on each other.
-  const [counts, memberships] = await Promise.all([
-    roomMemberCounts(supabase),
-    listViewerMemberships(
-      supabase,
-      rooms.map((room) => room.id),
-    ),
-  ]);
-
-  const summaries: RoomSummary[] = rooms.map((room) => {
-    const role = memberships.get(room.id);
-    return {
-      ...room,
-      member_count: counts.get(room.id) ?? 0,
-      viewer_membership:
-        role === "owner" ? "owner" : role === "student" ? "member" : "none",
-    };
-  });
+  const page = invalidQuery
+    ? { rooms: [], has_more: false, next_cursor: null }
+    : await searchPublicRooms(supabase, search);
 
   return (
-    <>
-      <p className="text-sm text-muted-foreground" role="status">
-        {summaries.length} {summaries.length === 1 ? "room" : "rooms"}
-        {search.q ? ` matching “${search.q}”` : ""} — public rooms only.
-      </p>
-      <ul className="grid gap-4 sm:grid-cols-2">
-        {summaries.map((room) => (
-          <li key={room.id}>
-            <RoomCard room={room} />
-          </li>
-        ))}
-      </ul>
-    </>
+    <RoomResults
+      key={JSON.stringify(discoveryStateOf(search))}
+      initialRooms={page.rooms}
+      initialHasMore={page.has_more}
+      initialCursor={page.next_cursor}
+      search={search}
+    />
   );
 }
 
+/**
+ * Browse page (PR 17): URL-driven search, filters and sort over public
+ * rooms only. Every parameter is validated here before it reaches the RPC;
+ * an invalid value renders an explained empty list rather than guessing at
+ * the visitor's intent, and the same URL always reproduces the same state.
+ */
 export default async function RoomsPage({ searchParams }: RoomsPageProps) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
@@ -105,14 +106,17 @@ export default async function RoomsPage({ searchParams }: RoomsPageProps) {
     redirect("/auth/login");
   }
 
-  const parsedSearch = roomSearchSchema.safeParse({
-    q: (await searchParams).q,
-  });
-  const search = parsedSearch.success ? parsedSearch.data : { q: "" };
+  const parsedSearch = roomDiscoverySchema.safeParse(
+    flattenParams(await searchParams),
+  );
+  const search = parsedSearch.success ? parsedSearch.data : EMPTY_SEARCH;
   const invalidQuery = !parsedSearch.success;
   const searchError = parsedSearch.success
     ? null
     : (parsedSearch.error.issues[0]?.message ?? "Invalid search.");
+  const state: DiscoveryState = discoveryStateOf(search);
+
+  const options = await getRoomFilterOptions(supabase);
 
   return (
     <section className="flex flex-col gap-6">
@@ -128,13 +132,11 @@ export default async function RoomsPage({ searchParams }: RoomsPageProps) {
         </Button>
       </header>
 
-      <Suspense
-        fallback={
-          <div className="h-16 w-full animate-pulse rounded-md bg-accent" />
-        }
-      >
-        <RoomSearchForm key={search.q} />
-      </Suspense>
+      <RoomSearch />
+
+      <RoomFilters state={state} options={options} />
+
+      <ActiveFilters state={state} />
 
       {searchError && (
         <p className="text-sm text-error" role="alert">
@@ -143,7 +145,7 @@ export default async function RoomsPage({ searchParams }: RoomsPageProps) {
       )}
 
       <Suspense fallback={<ResultsSkeleton />}>
-        <RoomsResults search={search} invalidQuery={invalidQuery} />
+        <ResultsSection search={search} invalidQuery={invalidQuery} />
       </Suspense>
     </section>
   );
