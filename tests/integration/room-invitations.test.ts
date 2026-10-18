@@ -8,7 +8,7 @@ import { GET as membersGet } from "@/app/api/rooms/[id]/members/route";
 import { createProfile } from "@/lib/profiles/queries";
 import { createRoom } from "@/lib/rooms/create";
 import { createRoomSchema } from "@/lib/validation/rooms";
-import { callApi, callApiWithParams, errorOf, readJson } from "./helpers/api";
+import { callApi, callApiWithParams, errorOf, readJson, withoutRequestId } from "./helpers/api";
 import { clearCookies, seedSession } from "./helpers/cookie-jar";
 import { psql } from "./helpers/admin";
 import {
@@ -453,9 +453,8 @@ describe("private room invitations", () => {
       const missing = await roster(MISSING_ROOM);
       expect(missing.response.status).toBe(404);
       expect(errorOf(missing.body).code).toBe("not_found");
-      expect(JSON.stringify(missing.body)).toBe(
-        JSON.stringify(nonMember.body),
-      );
+      // request_id is per-request by design, so it is stripped first.
+      expect(withoutRequestId(missing.body)).toEqual(withoutRequestId(nonMember.body));
     });
 
     it("rejects an anonymous roster read with 401", async () => {

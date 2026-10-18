@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { GET as meGet } from "../me/route";
+import { withLogging } from "@/lib/server/with-logging";
 
 /**
  * GET /api/analytics/me.csv — the spec's download-link path: the caller's
@@ -8,8 +9,10 @@ import { GET as meGet } from "../me/route";
  * `format=csv` forced, so the two routes can never drift in auth, range
  * validation or aggregation; `?range=` follows the same rules (required).
  */
-export async function GET(request: NextRequest) {
+async function GET_raw(request: NextRequest) {
   const url = new URL(request.url);
   url.searchParams.set("format", "csv");
   return meGet(new NextRequest(url, { headers: request.headers }));
 }
+
+export const GET = withLogging(GET_raw);

@@ -20,6 +20,8 @@ import { createClient } from "@/lib/supabase/server";
 import { notify, roomDedupeKey } from "@/lib/notifications/write";
 import { createInvitationSchema } from "@/lib/validation/invitations";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type InvitationsContext = { params: Promise<{ id: string }> };
 
@@ -49,7 +51,7 @@ type InvitationsContext = { params: Promise<{ id: string }> };
  * A non-member gets 404 before the owner check runs, so the endpoint is not
  * an existence oracle for private rooms.
  */
-export async function POST(request: NextRequest, { params }: InvitationsContext) {
+async function POST_raw(request: NextRequest, { params }: InvitationsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -119,7 +121,7 @@ export async function POST(request: NextRequest, { params }: InvitationsContext)
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/invitations] create failed:", error);
+    logError("[api/rooms/invitations] create failed:", errorFields(error));
     return errorResponse(
       "invitation_create_failed",
       "The invitation could not be created.",
@@ -127,6 +129,8 @@ export async function POST(request: NextRequest, { params }: InvitationsContext)
     );
   }
 }
+
+export const POST = withLogging(POST_raw);
 
 /**
  * GET /api/rooms/[id]/invitations — the owner's list for one room, newest
@@ -146,7 +150,7 @@ export async function POST(request: NextRequest, { params }: InvitationsContext)
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "invitations_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: InvitationsContext) {
+async function GET_raw(request: NextRequest, { params }: InvitationsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -171,7 +175,7 @@ export async function GET(request: NextRequest, { params }: InvitationsContext) 
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/invitations] list failed:", error);
+    logError("[api/rooms/invitations] list failed:", errorFields(error));
     return errorResponse(
       "invitations_failed",
       "Invitations could not be loaded.",
@@ -179,3 +183,5 @@ export async function GET(request: NextRequest, { params }: InvitationsContext) 
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

@@ -45,7 +45,11 @@ describe("POST /api/rooms/[id]/leave", () => {
 
     expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
-      error: { code: "unauthenticated", message: expect.any(String) },
+      error: {
+        code: "unauthenticated",
+        message: expect.any(String),
+        request_id: expect.any(String),
+      },
     });
     expect(leaveRoom).not.toHaveBeenCalled();
   });

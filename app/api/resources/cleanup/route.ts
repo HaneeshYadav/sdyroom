@@ -8,6 +8,8 @@ import { RESOURCE_BUCKET } from "@/lib/resources/types";
 import { createClient } from "@/lib/supabase/server";
 import { resourceCleanupSchema } from "@/lib/validation/resources";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * An object or a row younger than this is treated as an upload that is still
@@ -59,7 +61,7 @@ async function listObjectPaths(
       offset: page * LIST_PAGE_SIZE,
     });
     if (error) {
-      console.error("[api/resources/cleanup] list failed:", error.message);
+      logError("[api/resources/cleanup] list failed:", { error_message: error.message });
       cleanupFailed();
     }
 
@@ -113,7 +115,7 @@ async function listObjectPaths(
  * | 429 | `{ "error": { "code": "rate_limited" } }` |
  * | 500 | `{ "error": { "code": "cleanup_failed" } }` |
  */
-export async function POST(request: NextRequest) {
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -183,7 +185,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof RoomAccessError || error instanceof ResourceError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error("[api/resources/cleanup] sweep failed:", error);
+    logError("[api/resources/cleanup] sweep failed:", errorFields(error));
     return errorResponse(
       "cleanup_failed",
       "The cleanup could not finish. Please try again.",
@@ -191,6 +193,8 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);
 
 async function sweepOwnScope(
   supabase: SupabaseClient,
@@ -210,7 +214,7 @@ async function sweepOwnScope(
     .like("storage_path", pathPattern);
 
   if (rowError) {
-    console.error("[api/resources/cleanup] row list failed:", rowError.message);
+    logError("[api/resources/cleanup] row list failed:", { error_message: rowError.message });
     cleanupFailed();
   }
 
@@ -228,12 +232,10 @@ async function sweepOwnScope(
       const chunk = orphanPaths.slice(i, i + 100);
       const { error } = await bucket.remove(chunk);
       if (error) {
-        console.error(
-          "[api/resources/cleanup] object remove failed:",
-          chunk.length,
-          "keys,",
-          error.message,
-        );
+        logError("[api/resources/cleanup] object remove failed", {
+          chunk_size: chunk.length,
+          error_message: error.message,
+        });
         cleanupFailed();
       }
     }
@@ -256,7 +258,7 @@ async function sweepOwnScope(
       .select("id");
 
     if (deleteError) {
-      console.error("[api/resources/cleanup] row delete failed:", deleteError.message);
+      logError("[api/resources/cleanup] row delete failed:", { error_message: deleteError.message });
       cleanupFailed();
     }
     removedRows = (deleted ?? []).length;

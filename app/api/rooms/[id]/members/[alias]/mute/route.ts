@@ -12,6 +12,8 @@ import { createClient } from "@/lib/supabase/server";
 import { notify, roomDedupeKey } from "@/lib/notifications/write";
 import { memberAliasSchema, muteBodySchema } from "@/lib/validation/moderation";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type MuteContext = {
   params: Promise<{ id: string; alias: string }>;
@@ -44,7 +46,7 @@ const MUTE_DURATION_TEXT: Record<string, string> = {
  * | 429 | `{ "error": { "code": "rate_limited" } }` |
  * | 500 | `{ "error": { "code": "moderation_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: MuteContext) {
+async function POST_raw(request: NextRequest, { params }: MuteContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -130,7 +132,7 @@ export async function POST(request: NextRequest, { params }: MuteContext) {
       );
     }
 
-    console.error("[api/rooms/members/mute] failed:", error);
+    logError("[api/rooms/members/mute] failed:", errorFields(error));
     return errorResponse(
       "moderation_failed",
       "That member could not be muted. Please try again.",
@@ -139,12 +141,14 @@ export async function POST(request: NextRequest, { params }: MuteContext) {
   }
 }
 
+export const POST = withLogging(POST_raw);
+
 /**
  * DELETE /api/rooms/[id]/members/[alias]/mute — lift an active mute.
  * Bodyless; every status in the POST table applies, with 409 `not_muted`
  * when no active mute exists.
  */
-export async function DELETE(request: NextRequest, { params }: MuteContext) {
+async function DELETE_raw(request: NextRequest, { params }: MuteContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -198,7 +202,7 @@ export async function DELETE(request: NextRequest, { params }: MuteContext) {
       );
     }
 
-    console.error("[api/rooms/members/unmute] failed:", error);
+    logError("[api/rooms/members/unmute] failed:", errorFields(error));
     return errorResponse(
       "moderation_failed",
       "That member could not be unmuted. Please try again.",
@@ -206,3 +210,5 @@ export async function DELETE(request: NextRequest, { params }: MuteContext) {
     );
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

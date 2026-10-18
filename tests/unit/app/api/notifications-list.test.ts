@@ -119,7 +119,7 @@ describe("GET /api/notifications/unread-count", () => {
     createClient.mockResolvedValue({ auth: { getClaims } });
     getClaims.mockResolvedValue({ data: null });
 
-    const response = await unreadCountGet();
+    const response = await unreadCountGet(new NextRequest("http://localhost/api/notifications/unread-count"));
     expect(response.status).toBe(401);
     expect(countUnreadNotifications).not.toHaveBeenCalled();
   });
@@ -128,7 +128,7 @@ describe("GET /api/notifications/unread-count", () => {
     signIn();
     countUnreadNotifications.mockResolvedValue(3);
 
-    const response = await unreadCountGet();
+    const response = await unreadCountGet(new NextRequest("http://localhost/api/notifications/unread-count"));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ unread_count: 3 });
   });
@@ -137,7 +137,7 @@ describe("GET /api/notifications/unread-count", () => {
     signIn();
     countUnreadNotifications.mockRejectedValue(new NotificationQueryError("nope"));
 
-    const response = await unreadCountGet();
+    const response = await unreadCountGet(new NextRequest("http://localhost/api/notifications/unread-count"));
     expect(response.status).toBe(500);
     expect((await response.json()).error.code).toBe("notifications_failed");
   });

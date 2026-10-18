@@ -6,6 +6,8 @@ import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { artifactIdSchema } from "@/lib/validation/generate";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type DueContext = { params: Promise<{ id: string; artifactId: string }> };
 
@@ -24,7 +26,7 @@ type DueContext = { params: Promise<{ id: string; artifactId: string }> };
  * | 409 | `{ "error": { "code": "artifact_not_ready" } }` |
  * | 500 | `{ "error": { "code": "review_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: DueContext) {
+async function GET_raw(request: NextRequest, { params }: DueContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -62,10 +64,9 @@ export async function GET(request: NextRequest, { params }: DueContext) {
     if (error instanceof GenerateError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/decks/due] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/decks/due] failed:", errorFields(error));
     return errorResponse("review_failed", "Could not load due cards.", 500);
   }
 }
+
+export const GET = withLogging(GET_raw);

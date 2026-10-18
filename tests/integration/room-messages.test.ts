@@ -9,7 +9,7 @@ import { createRoom } from "@/lib/rooms/create";
 import { joinRoom } from "@/lib/rooms/membership";
 import { createRoomSchema } from "@/lib/validation/rooms";
 import { psql } from "./helpers/admin";
-import { callApiWithParams, errorOf, readJson } from "./helpers/api";
+import { callApiWithParams, errorOf, readJson, withoutRequestId } from "./helpers/api";
 import { clearCookies, seedSession } from "./helpers/cookie-jar";
 import {
   createUser,
@@ -369,8 +369,9 @@ describe("room messages", () => {
       }
 
       // Indistinguishable bodies: the URL never reveals which rooms exist.
-      expect(errorOf(foreignRead.body)).toEqual(errorOf(missingRead.body));
-      expect(errorOf(foreignWrite.body)).toEqual(errorOf(missingWrite.body));
+      // (request_id is per-request by design, so it is stripped first.)
+      expect(withoutRequestId(foreignRead.body)).toEqual(withoutRequestId(missingRead.body));
+      expect(withoutRequestId(foreignWrite.body)).toEqual(withoutRequestId(missingWrite.body));
 
       // The rejected writes never landed (the room may already hold messages
       // its own members posted through the API).

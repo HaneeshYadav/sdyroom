@@ -8,6 +8,8 @@ import { FocusSessionError, startFocusSession } from "@/lib/focus/sessions";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
 import { startSessionSchema } from "@/lib/validation/focus";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type StartContext = { params: Promise<{ id: string }> };
 
@@ -31,7 +33,7 @@ type StartContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "start_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: StartContext) {
+async function POST_raw(request: NextRequest, { params }: StartContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -80,7 +82,7 @@ export async function POST(request: NextRequest, { params }: StartContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/session/start] failed:", error);
+    logError("[api/rooms/session/start] failed:", errorFields(error));
     return errorResponse(
       "start_failed",
       "The focus session could not be started. Please try again.",
@@ -88,3 +90,5 @@ export async function POST(request: NextRequest, { params }: StartContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

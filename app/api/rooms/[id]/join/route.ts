@@ -7,6 +7,8 @@ import {
 import { joinRoom, MembershipError } from "@/lib/rooms/membership";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type JoinContext = { params: Promise<{ id: string }> };
 
@@ -33,7 +35,7 @@ type JoinContext = { params: Promise<{ id: string }> };
  * A private room answers 404 exactly like a nonexistent one, so the endpoint
  * never reveals that a private room exists.
  */
-export async function POST(request: NextRequest, { params }: JoinContext) {
+async function POST_raw(request: NextRequest, { params }: JoinContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest, { params }: JoinContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/join] failed:", error);
+    logError("[api/rooms/join] failed:", errorFields(error));
     return errorResponse(
       "join_failed",
       "The room could not be joined. Please try again.",
@@ -73,3 +75,5 @@ export async function POST(request: NextRequest, { params }: JoinContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

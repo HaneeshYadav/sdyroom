@@ -13,6 +13,8 @@ import { getProfile } from "@/lib/profiles/queries";
 import { createRoom, RoomError } from "@/lib/rooms/create";
 import { createClient } from "@/lib/supabase/server";
 import { createRoomSchema, roomDiscoverySchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/rooms — public room discovery (PR 17).
@@ -26,7 +28,7 @@ import { createRoomSchema, roomDiscoverySchema } from "@/lib/validation/rooms";
  * original `{ rooms }` fields and adds `has_more`/`next_cursor` so existing
  * consumers stay valid.
  */
-export async function GET(request: NextRequest) {
+async function GET_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -68,7 +70,7 @@ export async function GET(request: NextRequest) {
     if (error instanceof DiscoveryError) {
       return errorResponse(error.code, error.message, discoveryErrorStatus(error));
     }
-    console.error("[api/rooms] list failed:", error);
+    logError("[api/rooms] list failed:", errorFields(error));
     return errorResponse(
       "query_failed",
       "Public rooms could not be loaded.",
@@ -77,12 +79,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
+export const GET = withLogging(GET_raw);
+
 /**
  * POST /api/rooms — creates a room through the create_room RPC.
  * 401 without a session, 403 before onboarding, 400 on invalid fields.
  * The owner is never accepted from the client.
  */
-export async function POST(request: NextRequest) {
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -115,7 +119,7 @@ export async function POST(request: NextRequest) {
       );
     }
   } catch (error) {
-    console.error("[api/rooms] profile lookup failed:", error);
+    logError("[api/rooms] profile lookup failed:", errorFields(error));
     return errorResponse(
       "query_failed",
       "Your profile could not be loaded.",
@@ -131,7 +135,7 @@ export async function POST(request: NextRequest) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms] create failed:", error);
+    logError("[api/rooms] create failed:", errorFields(error));
     return errorResponse(
       "rpc_failed",
       "The room could not be created. Please try again.",
@@ -139,3 +143,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

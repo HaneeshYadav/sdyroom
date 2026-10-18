@@ -79,8 +79,15 @@ describe("GET /api/rooms/[id]/preview", () => {
     expect(notFound.status).toBe(404);
     const notFoundBody = await notFound.text();
 
-    // Byte-identical bodies: private and missing stay indistinguishable.
-    expect(notFoundBody).toBe(missingBody);
+    // Identical bodies up to the per-request correlation id: private and
+    // missing stay indistinguishable (the id reveals nothing about whether
+    // the room exists — it is the same value the response header carries).
+    const withoutId = (body: string) => {
+      const parsed = JSON.parse(body) as { error: Record<string, unknown> };
+      delete parsed.error.request_id;
+      return JSON.stringify(parsed);
+    };
+    expect(withoutId(notFoundBody)).toBe(withoutId(missingBody));
     expect(JSON.parse(notFoundBody).error.code).toBe("not_found");
     expect(getRoomPreview).toHaveBeenCalledTimes(1);
   });
@@ -94,6 +101,7 @@ describe("GET /api/rooms/[id]/preview", () => {
     expect((await response.json()).error).toEqual({
       code: "not_found",
       message: "That room is not available.",
+      request_id: expect.any(String),
     });
   });
 

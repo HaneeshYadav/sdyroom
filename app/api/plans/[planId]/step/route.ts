@@ -8,6 +8,8 @@ import { planSpec } from "@/lib/rate-limit/keys";
 import { rateLimitedResponse } from "@/lib/rate-limit/check";
 import { createClient } from "@/lib/supabase/server";
 import { planIdSchema } from "@/lib/validation/planner";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type StepContext = { params: Promise<{ planId: string }> };
 
@@ -34,7 +36,7 @@ type StepContext = { params: Promise<{ planId: string }> };
  * | 502 | `{ "error": { "code": "ai_provider_failed" } }` |
  * | 500 | `{ "error": { "code": "plans_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: StepContext) {
+async function POST_raw(request: NextRequest, { params }: StepContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -79,10 +81,9 @@ export async function POST(request: NextRequest, { params }: StepContext) {
     if (error instanceof AiProviderError || error instanceof RetrieveError) {
       return errorResponse("ai_provider_failed", error.message, 502);
     }
-    console.error(
-      "[api/plans/step] step failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/plans/step] step failed:", errorFields(error));
     return errorResponse("plans_failed", "Could not advance the plan.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

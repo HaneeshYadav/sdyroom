@@ -9,6 +9,8 @@ import {
   DOWNLOAD_TTL_SECONDS,
   resourceIdSchema,
 } from "@/lib/validation/resources";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type DownloadContext = { params: Promise<{ id: string }> };
 
@@ -36,7 +38,7 @@ type DownloadContext = { params: Promise<{ id: string }> };
  * | 429 | `{ "error": { "code": "rate_limited" } }` |
  * | 500 | `{ "error": { "code": "download_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: DownloadContext) {
+async function GET_raw(request: NextRequest, { params }: DownloadContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -91,7 +93,7 @@ export async function GET(request: NextRequest, { params }: DownloadContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/resources/download] failed:", error);
+    logError("[api/resources/download] failed:", errorFields(error));
     return errorResponse(
       "download_failed",
       "This file could not be opened. Please try again.",
@@ -99,3 +101,5 @@ export async function GET(request: NextRequest, { params }: DownloadContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

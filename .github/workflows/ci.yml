@@ -34,6 +34,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Static drift check: every process.env key the code reads must be
+      # documented in .env.example. No secrets required.
+      - name: Environment contract
+        run: npm run check:env
+
       - name: Typecheck
         run: npx tsc --noEmit
 
@@ -94,6 +99,24 @@ jobs:
 
       - name: Run integration tests
         run: npm run test:integration
+
+      # Production-shape gate: the same build operators run, probed by the
+      # smoke script (health, readiness, metrics, request-id envelope).
+      - name: Build for smoke
+        run: npm run build
+
+      - name: Smoke-check the production build
+        run: |
+          npm run start > /tmp/next-start.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/health || true)
+            if [ "$code" = "200" ]; then
+              echo "Server ready after $attempt attempt(s)"
+              break
+            fi
+            sleep 1
+          done
+          npm run smoke
 
       - name: Stop local Supabase
         if: always()

@@ -15,6 +15,7 @@
  * tests free to vary `process.env` between cases; the cost is a handful of
  * property reads per request.
  */
+import { logWarn } from "@/lib/server/log";
 
 export type ProviderSetting = "auto" | "openai" | "mock";
 export type ResolvedProviderName = "openai" | "mock";
@@ -51,7 +52,7 @@ function readProviderSetting(): ProviderSetting {
     // A typo must not silently become demo mode: it is logged (no value
     // echoed beyond the variable name) and treated as `auto`, where the
     // key-presence rule still decides honestly.
-    console.warn("[ai/config] unknown AI_PROVIDER — treating as auto");
+    logWarn("[ai/config] unknown AI_PROVIDER — treating as auto");
   }
   return "auto";
 }

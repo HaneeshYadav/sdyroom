@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { errorResponse } from "@/lib/api/responses";
 import {
@@ -6,6 +6,8 @@ import {
   NotificationQueryError,
 } from "@/lib/notifications/queries";
 import { createClient } from "@/lib/supabase/server";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/notifications/unread-count — the header badge's cheapest read:
@@ -20,7 +22,8 @@ import { createClient } from "@/lib/supabase/server";
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 500 | `{ "error": { "code": "notifications_failed" } }` |
  */
-export async function GET() {
+async function GET_raw(request: NextRequest) {
+  void request;
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -33,7 +36,7 @@ export async function GET() {
     return NextResponse.json({ unread_count: unreadCount });
   } catch (error) {
     if (error instanceof NotificationQueryError) {
-      console.error("[api/notifications/unread-count] failed:", error);
+      logError("[api/notifications/unread-count] failed:", errorFields(error));
       return errorResponse(
         "notifications_failed",
         "The unread count could not be loaded.",
@@ -43,3 +46,5 @@ export async function GET() {
     throw error;
   }
 }
+
+export const GET = withLogging(GET_raw);

@@ -25,9 +25,19 @@ import {
 } from "../provider";
 import { estimateTokens } from "../tokens";
 import { AI_EMBEDDING_DIMENSIONS } from "../types";
+import { createFailureGuard, fetchJson, UpstreamError } from "@/lib/server/http";
 
 /** Generous enough for a 64-text embed batch, short enough to bound a step. */
 const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Trips after 5 consecutive transport-level failures (timeout / network /
+ * 429-5xx) and half-opens after 30 s: while open, calls fail fast with a
+ * `AiProviderError` instead of each burning the full 30 s timeout. A 2xx
+ * response — even one whose body later fails validation — closes the
+ * circuit again, because the provider is demonstrably reachable.
+ */
+export const aiFailureGuard = createFailureGuard();
 
 type EmbeddingEntry = { index?: number; embedding?: unknown };
 
@@ -40,11 +50,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `AiProviderError` — the only error type this pipeline treats as a provider
  * outage. Response bodies are validated, never logged: an error payload from
  * a provider is untrusted data with no place in this app's logs.
+ *
+ * `retryable` marks a call that is safe to repeat (embeddings: same input,
+ * same vectors); it gets one bounded retry on a transient failure. Chat
+ * completions are never retried — a second billable generation is not a
+ * safe default.
  */
 async function callProvider(
   config: AiConfig,
   path: string,
   body: Record<string, unknown>,
+  options: { retryable?: boolean } = {},
 ): Promise<unknown> {
   if (config.apiKey === null) {
     // `AI_PROVIDER=openai` without `AI_API_KEY`: a configuration mistake
@@ -52,34 +68,54 @@ async function callProvider(
     throw new AiProviderError("AI provider is configured without an API key");
   }
 
-  let response: Response;
-  try {
-    response = await fetch(`${config.baseUrl}${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch (error) {
-    throw new AiProviderError("AI provider request failed", { cause: error });
-  }
-
-  if (!response.ok) {
+  if (!aiFailureGuard.allow()) {
     throw new AiProviderError(
-      `AI provider responded with status ${response.status}`,
+      "AI provider is cooling down after repeated failures",
     );
   }
 
+  let payload: unknown;
   try {
-    return await response.json();
+    payload = await fetchJson(
+      `${config.baseUrl}${path}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify(body),
+      },
+      {
+        timeoutMs: REQUEST_TIMEOUT_MS,
+        attempts: options.retryable ? 2 : 1,
+        idempotent: options.retryable,
+      },
+    );
   } catch (error) {
+    // Transport-level failure: the provider did not answer. Count it
+    // toward the guard, then preserve the exact messages the pipeline
+    // and its tests have always seen.
+    if (error instanceof UpstreamError && error.kind !== "body") {
+      aiFailureGuard.recordFailure();
+      if (error.kind === "status" && error.status !== null) {
+        throw new AiProviderError(
+          `AI provider responded with status ${error.status}`,
+        );
+      }
+      throw new AiProviderError("AI provider request failed", {
+        cause: error,
+      });
+    }
+    aiFailureGuard.recordSuccess();
     throw new AiProviderError("AI provider returned an unreadable response", {
       cause: error,
     });
   }
+
+  // The provider answered 2xx: it is reachable, however broken the body.
+  aiFailureGuard.recordSuccess();
+  return payload;
 }
 
 export function createOpenAiProvider(config: AiConfig): AiProvider {
@@ -98,10 +134,15 @@ export function createOpenAiProvider(config: AiConfig): AiProvider {
 
     for (let start = 0; start < texts.length; start += EMBED_BATCH_SIZE) {
       const batch = texts.slice(start, start + EMBED_BATCH_SIZE);
-      const payload = await callProvider(config, "/embeddings", {
-        model: config.embedModel,
-        input: batch,
-      });
+      const payload = await callProvider(
+        config,
+        "/embeddings",
+        {
+          model: config.embedModel,
+          input: batch,
+        },
+        { retryable: true },
+      );
 
       if (!isRecord(payload) || !Array.isArray(payload.data)) {
         throw new AiProviderError("embeddings response was malformed");

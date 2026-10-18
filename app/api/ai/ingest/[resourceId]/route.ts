@@ -8,6 +8,8 @@ import { ingestSpec } from "@/lib/rate-limit/keys";
 import { createClient } from "@/lib/supabase/server";
 import { ingestStepSchema } from "@/lib/validation/ai";
 import { resourceIdSchema } from "@/lib/validation/resources";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type IngestContext = { params: Promise<{ resourceId: string }> };
 
@@ -24,7 +26,7 @@ type IngestContext = { params: Promise<{ resourceId: string }> };
  * `failed/no_text_layer`, which are states, not HTTP errors. HTTP errors are
  * the published codes: 400/401/403/404/413/415/429/502/500.
  */
-export async function POST(request: NextRequest, { params }: IngestContext) {
+async function POST_raw(request: NextRequest, { params }: IngestContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -88,11 +90,10 @@ export async function POST(request: NextRequest, { params }: IngestContext) {
       return errorResponse(error.code, error.message, 502);
     }
 
-    console.error(
-      "[api/ai/ingest] step failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/ai/ingest] step failed:", errorFields(error));
 
     return errorResponse("ingest_failed", INGEST_MESSAGES.ingest_failed, 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

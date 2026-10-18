@@ -7,6 +7,8 @@ import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { askHistoryQuerySchema } from "@/lib/validation/ask";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type HistoryContext = { params: Promise<{ id: string }> };
 
@@ -28,7 +30,7 @@ type HistoryContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "conversation_history_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: HistoryContext) {
+async function GET_raw(request: NextRequest, { params }: HistoryContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -76,10 +78,7 @@ export async function GET(request: NextRequest, { params }: HistoryContext) {
     if (error instanceof AskError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/ask/history] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/ask/history] failed:", errorFields(error));
     return errorResponse(
       "conversation_history_failed",
       "Could not load conversation history.",
@@ -87,3 +86,5 @@ export async function GET(request: NextRequest, { params }: HistoryContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

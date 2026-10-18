@@ -18,6 +18,8 @@ import {
 } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema, updateRoomSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type RoomItemContext = { params: Promise<{ id: string }> };
 
@@ -46,7 +48,7 @@ type RoomItemContext = { params: Promise<{ id: string }> };
  * The owner gate runs before the RPC, so a plain member stops at 403 and a
  * non-member never learns whether the room exists.
  */
-export async function PATCH(request: NextRequest, { params }: RoomItemContext) {
+async function PATCH_raw(request: NextRequest, { params }: RoomItemContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -93,7 +95,7 @@ export async function PATCH(request: NextRequest, { params }: RoomItemContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms] update failed:", error);
+    logError("[api/rooms] update failed:", errorFields(error));
     return errorResponse(
       "room_update_failed",
       "The room could not be updated. Please try again.",
@@ -101,6 +103,8 @@ export async function PATCH(request: NextRequest, { params }: RoomItemContext) {
     );
   }
 }
+
+export const PATCH = withLogging(PATCH_raw);
 
 /**
  * DELETE /api/rooms/[id] — owner-only room removal, with storage first.
@@ -144,7 +148,7 @@ export async function PATCH(request: NextRequest, { params }: RoomItemContext) {
  * with the room, so the second call looks exactly like any other missing
  * room.
  */
-export async function DELETE(request: NextRequest, { params }: RoomItemContext) {
+async function DELETE_raw(request: NextRequest, { params }: RoomItemContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -184,7 +188,7 @@ export async function DELETE(request: NextRequest, { params }: RoomItemContext) 
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms] delete failed:", error);
+    logError("[api/rooms] delete failed:", errorFields(error));
     return errorResponse(
       "delete_failed",
       "The room could not be deleted. Please try again.",
@@ -192,3 +196,5 @@ export async function DELETE(request: NextRequest, { params }: RoomItemContext) 
     );
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

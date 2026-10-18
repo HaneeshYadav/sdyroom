@@ -10,6 +10,8 @@ import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { artifactIdSchema, attemptBodySchema } from "@/lib/validation/generate";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type AttemptsContext = { params: Promise<{ id: string; artifactId: string }> };
 
@@ -34,7 +36,7 @@ type AttemptsContext = { params: Promise<{ id: string; artifactId: string }> };
  * | 409 | `{ "error": { "code": "artifact_not_ready" } }` |
  * | 500 | `{ "error": { "code": "attempts_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: AttemptsContext) {
+async function POST_raw(request: NextRequest, { params }: AttemptsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -82,15 +84,14 @@ export async function POST(request: NextRequest, { params }: AttemptsContext) {
     if (error instanceof GenerateError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/quizzes/attempts] submit failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/quizzes/attempts] submit failed:", errorFields(error));
     return errorResponse("attempts_failed", "Could not record that attempt.", 500);
   }
 }
 
-export async function GET(request: NextRequest, { params }: AttemptsContext) {
+export const POST = withLogging(POST_raw);
+
+async function GET_raw(request: NextRequest, { params }: AttemptsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -126,10 +127,9 @@ export async function GET(request: NextRequest, { params }: AttemptsContext) {
     if (error instanceof GenerateError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/quizzes/attempts] list failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/quizzes/attempts] list failed:", errorFields(error));
     return errorResponse("attempts_failed", "Could not load attempts.", 500);
   }
 }
+
+export const GET = withLogging(GET_raw);

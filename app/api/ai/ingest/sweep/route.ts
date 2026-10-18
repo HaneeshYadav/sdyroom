@@ -7,6 +7,8 @@ import { sweepSpec } from "@/lib/rate-limit/keys";
 import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { ingestSweepSchema } from "@/lib/validation/ai";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * POST /api/ai/ingest/sweep — picks up stuck ingest rows and advances each
@@ -21,7 +23,7 @@ import { ingestSweepSchema } from "@/lib/validation/ai";
  * error mid-flight still appear with their current status: one bad document
  * never abandons the rest of the sweep.
  */
-export async function POST(request: NextRequest) {
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -77,10 +79,7 @@ export async function POST(request: NextRequest) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error(
-      "[api/ai/ingest/sweep] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/ai/ingest/sweep] failed:", errorFields(error));
 
     return errorResponse(
       "ingest_failed",
@@ -89,3 +88,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

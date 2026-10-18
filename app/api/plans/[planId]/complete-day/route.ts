@@ -8,6 +8,8 @@ import {
 import { completeDay, PlanError } from "@/lib/planner/plans";
 import { createClient } from "@/lib/supabase/server";
 import { completeDaySchema, planIdSchema } from "@/lib/validation/planner";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type CompleteDayContext = { params: Promise<{ planId: string }> };
 
@@ -30,7 +32,7 @@ type CompleteDayContext = { params: Promise<{ planId: string }> };
  * | 409 | `{ "error": { "code": "plan_not_active" } }` |
  * | 500 | `{ "error": { "code": "plans_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: CompleteDayContext) {
+async function POST_raw(request: NextRequest, { params }: CompleteDayContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -63,10 +65,9 @@ export async function POST(request: NextRequest, { params }: CompleteDayContext)
     if (error instanceof PlanError) {
       return errorResponse(error.code, error.message, error.status, error.issues);
     }
-    console.error(
-      "[api/plans/complete-day] complete failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/plans/complete-day] complete failed:", errorFields(error));
     return errorResponse("plans_failed", "Could not complete that day.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

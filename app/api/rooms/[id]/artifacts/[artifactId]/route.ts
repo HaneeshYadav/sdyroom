@@ -10,6 +10,8 @@ import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { artifactIdSchema } from "@/lib/validation/generate";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ArtifactContext = { params: Promise<{ id: string; artifactId: string }> };
 
@@ -32,7 +34,7 @@ type ArtifactContext = { params: Promise<{ id: string; artifactId: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "artifacts_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: ArtifactContext) {
+async function GET_raw(request: NextRequest, { params }: ArtifactContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -70,15 +72,14 @@ export async function GET(request: NextRequest, { params }: ArtifactContext) {
     if (error instanceof GenerateError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/artifacts] read failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/artifacts] read failed:", errorFields(error));
     return errorResponse("artifacts_failed", "Could not load that item.", 500);
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: ArtifactContext) {
+export const GET = withLogging(GET_raw);
+
+async function DELETE_raw(request: NextRequest, { params }: ArtifactContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -112,10 +113,9 @@ export async function DELETE(request: NextRequest, { params }: ArtifactContext) 
     if (error instanceof GenerateError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/artifacts] delete failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/artifacts] delete failed:", errorFields(error));
     return errorResponse("artifacts_failed", "Could not delete that item.", 500);
   }
 }
+
+export const DELETE = withLogging(DELETE_raw);

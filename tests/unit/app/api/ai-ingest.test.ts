@@ -4,6 +4,7 @@ import { IngestError } from "@/lib/ai/ingest";
 import { INGEST_LIMIT } from "@/lib/rate-limit/keys";
 import { NextRequest, NextResponse } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { captureLogs, errorLines } from "../../helpers/log-capture";
 
 const { createClient, getClaims, rateLimitedResponse, advance } = vi.hoisted(
   () => ({
@@ -43,7 +44,6 @@ beforeEach(() => {
   rateLimitedResponse.mockResolvedValue(null);
   advance.mockReset();
   createClient.mockResolvedValue({ auth: { getClaims } });
-  vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
 describe("POST /api/ai/ingest/[resourceId]", () => {
@@ -173,11 +173,13 @@ describe("POST /api/ai/ingest/[resourceId]", () => {
 
   it("answers an unexpected failure with ingest_failed and logs it without the key material", async () => {
     advance.mockRejectedValue(new Error("something else entirely"));
+    const { lines, restore } = captureLogs();
 
     const response = await POST(request("{}"), context());
 
     expect(response.status).toBe(500);
     expect((await response.json()).error.code).toBe("ingest_failed");
-    expect(console.error).toHaveBeenCalled();
+    expect(errorLines(lines, "[api/ai/ingest] step failed:")).toHaveLength(1);
+    restore();
   });
 });

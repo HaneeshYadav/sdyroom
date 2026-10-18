@@ -1,7 +1,8 @@
 import { rateLimitedResponse, takeRateLimit } from "@/lib/rate-limit/check";
 import { uploadUserSpec } from "@/lib/rate-limit/keys";
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { captureLogs, errorLines } from "../../helpers/log-capture";
 
 const SPEC = uploadUserSpec("user-1");
 
@@ -10,10 +11,6 @@ function clientWith(rpc: ReturnType<typeof vi.fn>) {
 }
 
 describe("takeRateLimit", () => {
-  beforeEach(() => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-  });
-
   it("consumes one slot through the rate_limit_take RPC", async () => {
     const rpc = vi.fn(async () => ({ data: true }));
 
@@ -39,16 +36,22 @@ describe("takeRateLimit", () => {
       data: null,
       error: { message: "permission denied for function rate_limit_take" },
     }));
+    const { lines, restore } = captureLogs();
 
     await expect(takeRateLimit(clientWith(rpc), SPEC)).resolves.toBe(true);
-    expect(console.error).toHaveBeenCalled();
+
+    expect(errorLines(lines, "[rate-limit] take failed")).toHaveLength(1);
+    restore();
   });
 
   it("fails open when the client has no rpc at all", async () => {
+    const { lines, restore } = captureLogs();
+
     const allowed = await takeRateLimit({} as never, SPEC);
 
     expect(allowed).toBe(true);
-    expect(console.error).toHaveBeenCalled();
+    expect(errorLines(lines, "[rate-limit] take threw")).toHaveLength(1);
+    restore();
   });
 
   it("treats an unexpected payload shape as allowed", async () => {
@@ -59,10 +62,6 @@ describe("takeRateLimit", () => {
 });
 
 describe("rateLimitedResponse", () => {
-  beforeEach(() => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-  });
-
   it("returns null when the slot was available", async () => {
     const rpc = vi.fn(async () => ({ data: true }));
 

@@ -445,6 +445,42 @@ Two details worth restating because they are easy to lose:
   convention), and the discovery card's join/leave reflecting membership
   after the server refresh.
 
+## Structured logging, request ids and redaction (PR 18)
+
+Every `/api/*` handler is wrapped by `withLogging` (`lib/server/with-logging.ts`),
+which emits exactly one JSON line per request through `lib/server/log.ts` —
+the application's only logger; no route writes to `console` anymore.
+
+**Request id.** The edge middleware (`lib/supabase/proxy.ts`) resolves
+`x-request-id` from the caller (accepted only when it matches
+`[A-Za-z0-9_-]{8,128}`; anything else is replaced with a minted uuid) and is
+the sole writer of `x-user-id` — a client-supplied `x-user-id` is never
+trusted. `withLogging` re-resolves the id, echoes it on the response, attaches
+it to every log line for that request, and embeds it as `request_id` in the
+error envelope (`lib/api/responses.ts`), so a user-visible error is always
+correlatable with the server-side line that explains it — and a support
+conversation can name one string that is not an identifier.
+
+**Redaction.** Enforced centrally in `lib/server/log.ts`, not trusted to each
+call site. Any field whose key normalizes to a known-sensitive name
+(`authorization`, `cookie`, `token`/`token_hash`/`refresh_token`, `password`,
+`api_key`, `signed_url`, `reporter_id`, `content`, …) is replaced with
+`<redacted>` before serialization. Independent of the key, values that look
+like credentials are scrubbed: JWT-shaped strings are replaced wholesale,
+`Bearer …` tokens are replaced inline (the surrounding context is kept), and
+`token=`/`signature=`/`jwt=` query parameters are rewritten to their path so
+an operator can still see *which* object was involved without the signature.
+The table-driven test in `tests/unit/lib/server/log.test.ts` is the control —
+adding a sensitive key is a one-line change that the test picks up
+automatically — and `tests/integration/production-hardening.test.ts` proves
+end-to-end that a forged `Authorization` header never reaches the log stream.
+
+**What a log line may contain.** Timestamp, level, event name, request id,
+route (normalized: uuids and numbers become `:id`), method, status, duration,
+nullable user id, and error fields for failures. Never a stack trace in a
+response (server-side lines include stacks by design), never a request body,
+never a cookie, never a signed URL with its signature.
+
 ## Coverage (how it is proven)
 
 | Suite | Command | What it pins down |

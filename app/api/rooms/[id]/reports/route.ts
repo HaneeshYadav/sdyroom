@@ -14,6 +14,8 @@ import {
   reportsQuerySchema,
 } from "@/lib/validation/moderation";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ReportsContext = { params: Promise<{ id: string }> };
 
@@ -34,7 +36,7 @@ type ReportsContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` — missing room or non-member |
  * | 500 | `{ "error": { "code": "report_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: ReportsContext) {
+async function GET_raw(request: NextRequest, { params }: ReportsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -77,7 +79,7 @@ export async function GET(request: NextRequest, { params }: ReportsContext) {
       );
     }
 
-    console.error("[api/rooms/reports] list failed:", error);
+    logError("[api/rooms/reports] list failed:", errorFields(error));
     return errorResponse(
       "report_failed",
       "The reports could not be loaded.",
@@ -85,6 +87,8 @@ export async function GET(request: NextRequest, { params }: ReportsContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);
 
 /**
  * POST /api/rooms/[id]/reports — file a report against a member, a message,
@@ -108,7 +112,7 @@ export async function GET(request: NextRequest, { params }: ReportsContext) {
  * | 429 | `{ "error": { "code": "rate_limited" } }` |
  * | 500 | `{ "error": { "code": "report_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ReportsContext) {
+async function POST_raw(request: NextRequest, { params }: ReportsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -182,7 +186,7 @@ export async function POST(request: NextRequest, { params }: ReportsContext) {
       );
     }
 
-    console.error("[api/rooms/reports] create failed:", error);
+    logError("[api/rooms/reports] create failed:", errorFields(error));
     return errorResponse(
       "report_failed",
       "The report could not be filed. Please try again.",
@@ -190,3 +194,5 @@ export async function POST(request: NextRequest, { params }: ReportsContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

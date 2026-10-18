@@ -75,7 +75,7 @@ export async function readJson(response: Response): Promise<Record<string, unkno
   }
 }
 
-export type ErrorEnvelope = { error: { code: string; message: string; issues?: { path: string; message: string }[] } };
+export type ErrorEnvelope = { error: { code: string; message: string; request_id?: string; issues?: { path: string; message: string }[] } };
 
 export function errorOf(body: Record<string, unknown>): ErrorEnvelope["error"] {
   const error = body.error;
@@ -83,4 +83,19 @@ export function errorOf(body: Record<string, unknown>): ErrorEnvelope["error"] {
     throw new Error(`Expected { error: ... }, got: ${JSON.stringify(body).slice(0, 200)}`);
   }
   return error as ErrorEnvelope["error"];
+}
+
+/**
+ * Strips the per-request correlation id so two responses can be compared for
+ * privacy parity ("the 404 is identical whether the room exists or not") —
+ * each request mints its own request_id, which is expected to differ.
+ */
+export function withoutRequestId(body: Record<string, unknown>): Record<string, unknown> {
+  const error = body.error;
+  if (!error || typeof error !== "object") {
+    return body;
+  }
+  const rest = { ...(error as Record<string, unknown>) };
+  delete rest.request_id;
+  return { ...body, error: rest };
 }

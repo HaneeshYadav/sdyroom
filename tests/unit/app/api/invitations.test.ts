@@ -88,14 +88,14 @@ describe("invitation inbox and responses", () => {
     it("rejects unauthenticated requests with 401", async () => {
       getClaims.mockResolvedValue({ data: null });
 
-      const response = await GET();
+      const response = await GET(new NextRequest("http://localhost/api/invitations"));
 
       expect(response.status).toBe(401);
       expect(listMyInvitations).not.toHaveBeenCalled();
     });
 
     it("answers 200 with the caller's addressed invitations", async () => {
-      const response = await GET();
+      const response = await GET(new NextRequest("http://localhost/api/invitations"));
 
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual({ invitations: [INVITATION] });
@@ -107,7 +107,7 @@ describe("invitation inbox and responses", () => {
         new Error('permission denied for table room_invitations'),
       );
 
-      const response = await GET();
+      const response = await GET(new NextRequest("http://localhost/api/invitations"));
 
       expect(response.status).toBe(500);
       const body = await response.json();

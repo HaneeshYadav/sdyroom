@@ -51,6 +51,7 @@ import { computeShift } from "@/lib/planner/shift";
 import { assembleSignals } from "@/lib/planner/signals";
 import { parsePlanPayload, PlanValidationError, type PlanKind } from "@/lib/planner/validate";
 import type { CreatePlanBody } from "@/lib/validation/planner";
+import { logError } from "@/lib/server/log";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -651,7 +652,7 @@ export async function failPlan(
   if (error) {
     // Best-effort: the caller is already failing the request; a failed
     // fail-plan leaves the row `generating` for a retry or the UI.
-    console.error("[planner] fail_plan failed:", error.message);
+    logError("[planner] fail_plan failed:", { error_message: error.message });
   }
 }
 

@@ -6,6 +6,8 @@ import {
   NotificationQueryError,
 } from "@/lib/notifications/queries";
 import { createClient } from "@/lib/supabase/server";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * POST /api/notifications/read-all — mark every unread row the caller owns
@@ -23,7 +25,7 @@ import { createClient } from "@/lib/supabase/server";
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 500 | `{ "error": { "code": "notifications_failed" } }` |
  */
-export async function POST(request: NextRequest) {
+async function POST_raw(request: NextRequest) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -42,7 +44,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof NotificationQueryError) {
-      console.error("[api/notifications/read-all] failed:", error);
+      logError("[api/notifications/read-all] failed:", errorFields(error));
       return errorResponse(
         "notifications_failed",
         "Notifications could not be updated.",
@@ -52,3 +54,5 @@ export async function POST(request: NextRequest) {
     throw error;
   }
 }
+
+export const POST = withLogging(POST_raw);

@@ -6,6 +6,8 @@ import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { artifactsQuerySchema } from "@/lib/validation/generate";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ArtifactsContext = { params: Promise<{ id: string }> };
 
@@ -24,7 +26,7 @@ type ArtifactsContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "artifacts_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: ArtifactsContext) {
+async function GET_raw(request: NextRequest, { params }: ArtifactsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -63,10 +65,9 @@ export async function GET(request: NextRequest, { params }: ArtifactsContext) {
     if (error instanceof GenerateError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/artifacts] list failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/artifacts] list failed:", errorFields(error));
     return errorResponse("artifacts_failed", "Could not load quizzes and decks.", 500);
   }
 }
+
+export const GET = withLogging(GET_raw);

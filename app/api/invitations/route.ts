@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { errorResponse } from "@/lib/api/responses";
 import { listMyInvitations } from "@/lib/invitations/queries";
 import { createClient } from "@/lib/supabase/server";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/invitations — the caller's invitation inbox, newest first.
@@ -22,7 +24,8 @@ import { createClient } from "@/lib/supabase/server";
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
  * | 500 | `{ "error": { "code": "invitations_failed" } }` |
  */
-export async function GET() {
+async function GET_raw(request: NextRequest) {
+  void request;
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -34,7 +37,7 @@ export async function GET() {
     const invitations = await listMyInvitations(supabase, data.claims.sub);
     return NextResponse.json({ invitations });
   } catch (error) {
-    console.error("[api/invitations] list failed:", error);
+    logError("[api/invitations] list failed:", errorFields(error));
     return errorResponse(
       "invitations_failed",
       "Invitations could not be loaded.",
@@ -42,3 +45,5 @@ export async function GET() {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

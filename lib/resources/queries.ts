@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { toStudyResource } from "./shape";
 import { STUDY_RESOURCE_COLUMNS, type StudyResource } from "./types";
+import { logError } from "@/lib/server/log";
 
 export type ResourceErrorCode =
   | "not_found"
@@ -150,7 +151,7 @@ async function fetchOwnedResourceIds(
     p_resource_ids: resourceIds,
   });
   if (error) {
-    console.error("[resources] owner lookup failed:", error.message);
+    logError("[resources] owner lookup failed:", { error_message: error.message });
     return new Set();
   }
   return new Set(

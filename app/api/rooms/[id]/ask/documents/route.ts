@@ -5,6 +5,8 @@ import { AskError, listAskDocuments } from "@/lib/ai/ask";
 import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type DocumentsContext = { params: Promise<{ id: string }> };
 
@@ -25,7 +27,7 @@ type DocumentsContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "documents_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: DocumentsContext) {
+async function GET_raw(request: NextRequest, { params }: DocumentsContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -53,10 +55,9 @@ export async function GET(request: NextRequest, { params }: DocumentsContext) {
     if (error instanceof AskError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/ask/documents] failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/ask/documents] failed:", errorFields(error));
     return errorResponse("documents_failed", "Could not list documents.", 500);
   }
 }
+
+export const GET = withLogging(GET_raw);

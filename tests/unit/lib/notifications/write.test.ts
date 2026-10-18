@@ -1,13 +1,11 @@
 import { notify, reportDedupeKey, roomDedupeKey } from "@/lib/notifications/write";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { captureLogs, errorLines } from "../../helpers/log-capture";
 
-const { rpc, consoleError } = vi.hoisted(() => ({
+const { rpc } = vi.hoisted(() => ({
   rpc: vi.fn(),
-  consoleError: vi.fn(),
 }));
-
-vi.spyOn(console, "error").mockImplementation(consoleError);
 
 const TARGET_ALIAS = "studybuddy";
 const TARGET_ID = "55555555-5555-4555-8555-555555555555";
@@ -69,10 +67,15 @@ describe("notify", () => {
 
   it("stops when the alias does not resolve (no push, no throw)", async () => {
     rpc.mockResolvedValueOnce({ data: null, error: null });
+    const { lines, restore } = captureLogs();
 
     await expect(notify(client(), ROOM_EVENT)).resolves.toBeUndefined();
+
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(consoleError).toHaveBeenCalled();
+    expect(
+      errorLines(lines, `[notify] unresolved target alias for ${ROOM_EVENT.type}`),
+    ).toHaveLength(1);
+    restore();
   });
 
   it("sends report events straight to the report RPC — no alias, no uuid", async () => {
@@ -99,34 +102,48 @@ describe("notify", () => {
     rpc
       .mockResolvedValueOnce({ data: TARGET_ID, error: null })
       .mockResolvedValueOnce({ data: { code: "muted" }, error: null });
+    const { lines, restore } = captureLogs();
 
     await expect(notify(client(), ROOM_EVENT)).resolves.toBeUndefined();
-    expect(consoleError).not.toHaveBeenCalled();
+
+    expect(errorLines(lines)).toHaveLength(0);
+    restore();
   });
 
   it("swallows a rejecting RPC — the caller's action must not fail", async () => {
     rpc.mockRejectedValue(new Error("database exploded"));
+    const { lines, restore } = captureLogs();
 
     await expect(notify(client(), ROOM_EVENT)).resolves.toBeUndefined();
-    expect(consoleError).toHaveBeenCalled();
+
+    expect(errorLines(lines, `[notify] ${ROOM_EVENT.type} failed:`)).toHaveLength(1);
+    restore();
   });
 
   it("swallows an RPC error envelope without throwing", async () => {
     rpc
       .mockResolvedValueOnce({ data: TARGET_ID, error: null })
       .mockResolvedValueOnce({ data: null, error: { message: "boom" } });
+    const { lines, restore } = captureLogs();
 
     await expect(notify(client(), ROOM_EVENT)).resolves.toBeUndefined();
-    expect(consoleError).toHaveBeenCalled();
+
+    expect(errorLines(lines, `[notify] ${ROOM_EVENT.type} failed:`)).toHaveLength(1);
+    restore();
   });
 
   it("logs unexpected envelope codes (a forge attempt would land here)", async () => {
     rpc
       .mockResolvedValueOnce({ data: TARGET_ID, error: null })
       .mockResolvedValueOnce({ data: { code: "not_authorized" }, error: null });
+    const { lines, restore } = captureLogs();
 
     await notify(client(), ROOM_EVENT);
-    expect(consoleError).toHaveBeenCalled();
+
+    expect(
+      errorLines(lines, `[notify] ${ROOM_EVENT.type} returned unexpected code`),
+    ).toHaveLength(1);
+    restore();
   });
 });
 

@@ -7,6 +7,8 @@ import {
 import { FocusSessionError, resumeFocusSession } from "@/lib/focus/sessions";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ResumeContext = { params: Promise<{ id: string }> };
 
@@ -28,7 +30,7 @@ type ResumeContext = { params: Promise<{ id: string }> };
  * | 409 | `{ "error": { "code": "no_active_session" \| "invalid_state" } }` |
  * | 500 | `{ "error": { "code": "resume_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ResumeContext) {
+async function POST_raw(request: NextRequest, { params }: ResumeContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest, { params }: ResumeContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/session/resume] failed:", error);
+    logError("[api/rooms/session/resume] failed:", errorFields(error));
     return errorResponse(
       "resume_failed",
       "The focus session could not be resumed. Please try again.",
@@ -72,3 +74,5 @@ export async function POST(request: NextRequest, { params }: ResumeContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

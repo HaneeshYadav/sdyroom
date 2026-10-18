@@ -7,6 +7,8 @@ import {
 import { endFocusSession, FocusSessionError } from "@/lib/focus/sessions";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type EndContext = { params: Promise<{ id: string }> };
 
@@ -28,7 +30,7 @@ type EndContext = { params: Promise<{ id: string }> };
  * | 409 | `{ "error": { "code": "no_active_session" } }` |
  * | 500 | `{ "error": { "code": "end_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: EndContext) {
+async function POST_raw(request: NextRequest, { params }: EndContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest, { params }: EndContext) {
       return errorResponse(error.code, error.message, error.status);
     }
 
-    console.error("[api/rooms/session/end] failed:", error);
+    logError("[api/rooms/session/end] failed:", errorFields(error));
     return errorResponse(
       "end_failed",
       "The focus session could not be ended. Please try again.",
@@ -72,3 +74,5 @@ export async function POST(request: NextRequest, { params }: EndContext) {
     );
   }
 }
+
+export const POST = withLogging(POST_raw);

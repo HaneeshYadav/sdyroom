@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { currentRequestId } from "@/lib/server/request-context";
 import type { ZodError } from "zod";
 
 export type ApiIssue = {
@@ -6,15 +7,31 @@ export type ApiIssue = {
   message: string;
 };
 
-/** Uniform error envelope: `{ error: { code, message, issues? } }`. */
+/**
+ * Uniform error envelope: `{ error: { code, message, request_id, issues? } }`.
+ *
+ * `request_id` is additive: it is the id from the request context (entered by
+ * `withLogging`), matching the `x-request-id` response header and the server
+ * log line for this request, so a user can quote one value that ties a report
+ * to the logs. Outside a request context (a helper unit test, background
+ * work) the field is omitted rather than invented.
+ */
 export function errorResponse(
   code: string,
   message: string,
   status: number,
   issues?: ApiIssue[],
 ): NextResponse {
+  const requestId = currentRequestId();
   return NextResponse.json(
-    { error: { code, message, ...(issues && issues.length > 0 ? { issues } : {}) } },
+    {
+      error: {
+        code,
+        message,
+        ...(requestId ? { request_id: requestId } : {}),
+        ...(issues && issues.length > 0 ? { issues } : {}),
+      },
+    },
     { status },
   );
 }

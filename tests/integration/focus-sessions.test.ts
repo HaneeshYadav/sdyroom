@@ -9,7 +9,7 @@ import { createRoom } from "@/lib/rooms/create";
 import { joinRoom } from "@/lib/rooms/membership";
 import { createRoomSchema } from "@/lib/validation/rooms";
 import { psql } from "./helpers/admin";
-import { callApiWithParams, errorOf, readJson } from "./helpers/api";
+import { callApiWithParams, errorOf, readJson, withoutRequestId } from "./helpers/api";
 import { clearCookies, seedSession } from "./helpers/cookie-jar";
 import {
   createUser,
@@ -165,7 +165,8 @@ describe("shared focus sessions", () => {
       expect(foreign.response.status).toBe(404);
       expect(errorOf(missing.body).code).toBe("not_found");
       expect(errorOf(foreign.body).code).toBe("not_found");
-      expect(JSON.stringify(missing.body)).toBe(JSON.stringify(foreign.body));
+      // request_id is per-request by design, so it is stripped first.
+      expect(withoutRequestId(missing.body)).toEqual(withoutRequestId(foreign.body));
     });
 
     it("rejects a room id that is not a UUID", async () => {

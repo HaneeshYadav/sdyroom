@@ -10,6 +10,8 @@ import {
 } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type MembersContext = { params: Promise<{ id: string }> };
 
@@ -34,7 +36,7 @@ type MembersContext = { params: Promise<{ id: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` — missing room, non-member, or left mid-request: all identical |
  * | 500 | `{ "error": { "code": "members_failed" } }` |
  */
-export async function GET(request: NextRequest, { params }: MembersContext) {
+async function GET_raw(request: NextRequest, { params }: MembersContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
@@ -63,7 +65,7 @@ export async function GET(request: NextRequest, { params }: MembersContext) {
       );
     }
 
-    console.error("[api/rooms/members] failed:", error);
+    logError("[api/rooms/members] failed:", errorFields(error));
     return errorResponse(
       "members_failed",
       "The roster could not be loaded.",
@@ -71,3 +73,5 @@ export async function GET(request: NextRequest, { params }: MembersContext) {
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

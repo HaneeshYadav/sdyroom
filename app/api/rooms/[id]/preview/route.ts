@@ -7,6 +7,8 @@ import {
 } from "@/lib/rooms/discovery";
 import { createClient } from "@/lib/supabase/server";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 /**
  * GET /api/rooms/[id]/preview — public-safe room detail (PR 17).
@@ -17,7 +19,7 @@ import { roomIdSchema } from "@/lib/validation/rooms";
  * existence oracle. A member previewing their own private room gets the row
  * with `is_member: true`.
  */
-export async function GET(
+async function GET_raw(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -52,7 +54,7 @@ export async function GET(
         discoveryErrorStatus(error),
       );
     }
-    console.error("[api/rooms/preview] failed:", error);
+    logError("[api/rooms/preview] failed:", errorFields(error));
     return errorResponse(
       "preview_failed",
       "That room could not be loaded.",
@@ -60,3 +62,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withLogging(GET_raw);

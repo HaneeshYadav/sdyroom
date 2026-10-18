@@ -4,11 +4,17 @@ Every SdyRoom endpoint answers JSON. Success bodies are shaped resources; every
 failure uses the single envelope built by `lib/api/responses.ts`:
 
 ```json
-{ "error": { "code": "…", "message": "…", "issues": [{ "path": "…", "message": "…" }] } }
+{ "error": { "code": "…", "message": "…", "request_id": "…", "issues": [{ "path": "…", "message": "…" }] } }
 ```
 
 `issues` appears whenever the failure can be attributed to a field — a Zod
-parse, an unknown multipart part, a rejected filename. Codes are stable machine
+parse, an unknown multipart part, a rejected filename. `request_id` appears on
+error responses produced inside a request (PR 18): the same value is echoed in
+the `x-request-id` response header and attached to every log line for that
+request, so a user-visible error is always correlatable with the server-side
+line that explains it. Callers may supply their own id (`x-request-id` header,
+8–128 chars of `[A-Za-z0-9_-]`); anything malformed is replaced with a minted
+uuid. Codes are stable machine
 strings; messages are user-facing English. No endpoint ever returns a stack
 trace, a SQL string, a storage path, a bucket name, a signed URL for a resource
 the caller may not read, another user's id, or an email address.
@@ -1510,6 +1516,24 @@ These numbers are part of the contract (`lib/rate-limit/keys.ts` is the
 implementation mirror); change both together. The per-user/per-target split on
 uploads means one account cannot do unbounded work overall, and cannot
 concentrate all of it on one room or library.
+
+---
+
+## Health, readiness and metrics (PR 18)
+
+Three unauthenticated, `cache-control: no-store` endpoints answer operational
+questions. None of them touches user data, and none is rate-limited: they are
+the endpoints a load balancer, a scheduler or an on-call engineer polls.
+
+| Method | Path | Summary |
+| --- | --- | --- |
+| `GET` | `/api/health` | Liveness: `200 { status: "ok", version, uptime_s }`. Never contacts the database or storage — a dependency outage must not make a supervisor restart a healthy process. |
+| `GET` | `/api/health/ready` | Readiness: probes Supabase REST and Storage in parallel (2 s timeout each). `200 { status: "ok", checks: { db: "ok", storage: "ok" }, checked_at }` when both answer; `503 { status: "degraded", checks: { db: "ok"\|"down", storage: "ok"\|"down" }, checked_at }` otherwise. An HTTP response from the dependency counts as "up"; only a thrown error or timeout marks it "down". Missing configuration answers `degraded` without probing. |
+| `GET` | `/api/metrics` | Single-instance aggregate health: `200 { window_s: 300, instance: "single", requests: { "<route>": { count, p50_ms, p95_ms, errors: { "<status>": n } } } }`. Routes are normalized (`/api/rooms/:id/join` — uuids and numbers become `:id`), so no path parameter or identifier can appear in this output. In-memory only: each process answers for itself; a multi-instance deploy needs an external aggregator (named follow-up, not a silent omission). |
+
+All three are wrapped by `withLogging`, so every poll produces one structured
+access line (`event: "request"`) with the route, status, duration and — when
+the caller sent one — the `x-request-id` echoed back.
 
 ---
 

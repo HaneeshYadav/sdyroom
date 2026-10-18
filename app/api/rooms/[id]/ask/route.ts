@@ -14,6 +14,8 @@ import { requireRoomMembership, RoomAccessError } from "@/lib/rooms/access";
 import { createClient } from "@/lib/supabase/server";
 import { askBodySchema } from "@/lib/validation/ask";
 import { roomIdSchema } from "@/lib/validation/rooms";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type AskContext = { params: Promise<{ id: string }> };
 
@@ -49,7 +51,7 @@ type AskContext = { params: Promise<{ id: string }> };
  * | 502 | `{ "error": { "code": "ai_provider_failed" } }` |
  * | 500 | `{ "error": { "code": "ask_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: AskContext) {
+async function POST_raw(request: NextRequest, { params }: AskContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -72,10 +74,7 @@ export async function POST(request: NextRequest, { params }: AskContext) {
     if (error instanceof RoomAccessError) {
       return errorResponse(error.code, error.message, error.status);
     }
-    console.error(
-      "[api/rooms/ask] membership check failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/ask] membership check failed:", errorFields(error));
     return errorResponse("ask_failed", "Could not check room access.", 500);
   }
 
@@ -164,10 +163,9 @@ export async function POST(request: NextRequest, { params }: AskContext) {
     if (error instanceof AiProviderError || error instanceof RetrieveError) {
       return errorResponse("ai_provider_failed", error.message, 502);
     }
-    console.error(
-      "[api/rooms/ask] ask failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/rooms/ask] ask failed:", errorFields(error));
     return errorResponse("ask_failed", "Could not answer that question.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);

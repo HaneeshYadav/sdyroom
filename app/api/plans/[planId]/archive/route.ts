@@ -4,6 +4,8 @@ import { errorResponse } from "@/lib/api/responses";
 import { archivePlan, PlanError } from "@/lib/planner/plans";
 import { createClient } from "@/lib/supabase/server";
 import { planIdSchema } from "@/lib/validation/planner";
+import { withLogging } from "@/lib/server/with-logging";
+import { errorFields, logError } from "@/lib/server/log";
 
 type ArchiveContext = { params: Promise<{ planId: string }> };
 
@@ -25,7 +27,7 @@ type ArchiveContext = { params: Promise<{ planId: string }> };
  * | 404 | `{ "error": { "code": "not_found" } }` |
  * | 500 | `{ "error": { "code": "plans_failed" } }` |
  */
-export async function POST(request: NextRequest, { params }: ArchiveContext) {
+async function POST_raw(request: NextRequest, { params }: ArchiveContext) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
   const claims = data?.claims;
@@ -49,10 +51,9 @@ export async function POST(request: NextRequest, { params }: ArchiveContext) {
     if (error instanceof PlanError) {
       return errorResponse(error.code, error.message, error.status, error.issues);
     }
-    console.error(
-      "[api/plans/archive] archive failed:",
-      error instanceof Error ? error.message : error,
-    );
+    logError("[api/plans/archive] archive failed:", errorFields(error));
     return errorResponse("plans_failed", "Could not archive that plan.", 500);
   }
 }
+
+export const POST = withLogging(POST_raw);
