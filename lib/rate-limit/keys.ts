@@ -42,6 +42,14 @@ export const BLOCK_LIMIT = { max: 30, windowSeconds: 3600 } as const;
 /** Mute/unmute — a per-room moderator action. */
 export const MUTE_LIMIT = { max: 30, windowSeconds: 3600 } as const;
 
+/**
+ * Profile saves (`PATCH /api/profile`). One save is a single row update;
+ * 30/60s bounds a client retry loop or scripted alias churn while sitting
+ * far above any human's editing pace. The read path stays unthrottled — it
+ * costs one indexed row lookup and the header already reads the same table.
+ */
+export const PROFILE_LIMIT = { max: 30, windowSeconds: 60 } as const;
+
 /** Invitation creation — limit per room, per inviter. */
 export const INVITE_LIMIT = { max: 10, windowSeconds: 3600 } as const;
 
@@ -152,6 +160,14 @@ export function muteSpec(roomId: string, userId: string): RateLimitSpec {
 
 export function inviteSpec(roomId: string, userId: string): RateLimitSpec {
   return { key: inviteKey(roomId, userId), ...INVITE_LIMIT };
+}
+
+export function profileKey(userId: string): string {
+  return `profile:${userId}`;
+}
+
+export function profileSpec(userId: string): RateLimitSpec {
+  return { key: profileKey(userId), ...PROFILE_LIMIT };
 }
 
 export function ingestKey(userId: string): string {

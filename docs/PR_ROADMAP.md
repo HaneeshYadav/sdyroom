@@ -100,7 +100,7 @@ merged) plus 3 discovered during the audit (19–21). Each has a spec in
 | 17 | Advanced public room discovery | [`PR-17`](prs/PR-17-room-discovery.md) | A | 06 | `0022` | Medium | In review — [PR #23](https://github.com/chanukyareddygopala07/sdyroom/pull/23) (`77b5097`) |
 | 18 | Production security & reliability hardening | [`PR-18`](prs/PR-18-production-hardening.md) | B | 10, 19, 21 + core | none (spec's `0017` was stale) | XL | In review — [PR #24](https://github.com/chanukyareddygopala07/sdyroom/pull/24) (`ea56594`) |
 | 19 | Responsive shell, mobile nav & accessibility baseline | [`PR-19`](prs/PR-19-responsive-shell-a11y.md) | A | none | none | Medium | In review — [PR #13](https://github.com/chanukyareddygopala07/sdyroom/pull/13) (`b3acb0f`) |
-| 20 | Profile & settings (alias editing) | [`PR-20`](prs/PR-20-profile-settings.md) | B | none | none | Small | Pending |
+| 20 | Profile & settings (alias editing) | [`PR-20`](prs/PR-20-profile-settings.md) | B | none | `0023` (language column; spec's `0017` was stale) | Small | In review — `feat/profile-settings` |
 | 21 | Quality & coverage baseline | [`PR-21`](prs/PR-21-quality-coverage-baseline.md) | B | none | none | Medium | Pending |
 
 **Numbering note.** 06–18 follow the numbering requested in the brief; 19–21 are

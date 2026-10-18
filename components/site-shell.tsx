@@ -8,6 +8,7 @@ import {
   InvitationsNavLink,
   NavLinks,
   ResourceNavLink,
+  SettingsNavLink,
 } from "@/components/nav-links";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { hasEnvVars } from "@/lib/utils";
@@ -39,6 +40,9 @@ export function SiteShell({ children }: { children: React.ReactNode }) {
       </Suspense>
       <Suspense fallback={null}>
         <AnalyticsNavLink />
+      </Suspense>
+      <Suspense fallback={null}>
+        <SettingsNavLink />
       </Suspense>
     </>
   );

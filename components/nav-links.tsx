@@ -80,3 +80,26 @@ export async function AnalyticsNavLink() {
     </Link>
   );
 }
+
+/**
+ * Settings (PR 20): where the student edits their own profile. Session-gated
+ * and `<Suspense>`-mounted like the account-adjacent links above, and placed
+ * in this shared list — which renders into both the desktop header and the
+ * mobile sheet — so the two presentations cannot drift. PR 19's profile menu
+ * will grow its own "Settings" destination when it lands; this link is the
+ * hand-off until then.
+ */
+export async function SettingsNavLink() {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+
+  if (!data?.claims) {
+    return null;
+  }
+
+  return (
+    <Link href="/settings" className={LINK_CLASS}>
+      Settings
+    </Link>
+  );
+}
