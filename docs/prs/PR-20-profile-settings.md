@@ -1,6 +1,6 @@
 # PR 20 — Profile and settings (alias, exam targets, language, notification prefs)
 
-**Status:** implemented — branch `feat/profile-settings`; GitHub PR to follow.
+**Status:** implemented — [GitHub PR #25](https://github.com/chanukyareddygopala07/sdyroom/pull/25) (`0091113`).
 **Owner:** Dev B (Cursor) · **Complexity:** Small · **Migration:** `0023_profile_language.sql` (adds nullable `profiles.language`; the spec's anticipated `0017` number was stale by the time this lane started)
 **Depends on:** nothing to start (parallel lane); soft: PR 19 (settings page layout/slot), PR 11 (notification preference schema to surface)
 
@@ -367,7 +367,7 @@ docs/milestones.md, README.md
 - [x] Every form has associated labels, `role="alert"` errors and
       `role="status"` success.
 - [x] Rate limit returns `429` under abuse with a friendly message.
-- [ ] All three suites + build green locally and in CI.
+- [x] All three suites + build green locally and in CI.
 
 ### Definition of Done
 
