@@ -1,7 +1,7 @@
 # PR 21 — Quality and coverage baseline (tests, CI gates, docs hygiene)
 
-**Status:** in progress on branch `test/final-quality-coverage`; GitHub PR not
-yet opened (see "Implementation status" for verified evidence).
+**Status:** In review — [PR #26](https://github.com/chanukyareddygopala07/sdyroom/pull/26)
+(`240c928`); see "Implementation status" for verified evidence.
 **Owner:** Dev B (Cursor) · **Complexity:** Medium · **Migration:** none
 **Depends on:** nothing to start (free lane); its CI gates should land **early** so PRs 06–18 inherit them — see "Sequencing note"
 
