@@ -9,6 +9,7 @@ import {
   NotificationQueryError,
 } from "@/lib/notifications/queries";
 import { getProfileSettings, ProfileQueryError } from "@/lib/profiles/queries";
+import { errorFields, logError } from "@/lib/server/log";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
@@ -49,7 +50,7 @@ export default async function SettingsPage() {
       error instanceof ProfileQueryError ||
       error instanceof NotificationQueryError
     ) {
-      console.error("[settings page] load failed:", error);
+      logError("[settings page] load failed:", errorFields(error));
     }
     throw error;
   });

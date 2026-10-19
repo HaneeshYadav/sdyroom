@@ -84,4 +84,60 @@ describe("NotificationsInbox", () => {
       });
     });
   });
+
+  it("reloads the list when a mark-read write is refused (PR 21)", async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input);
+      if (url.includes(`/${ROW.id}/read`)) {
+        return Promise.resolve(jsonResponse(500, { error: {} }));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { notifications: [ROW], unread_count: 1, has_more: false }),
+      );
+    });
+
+    render(<NotificationsInbox {...PROPS} />);
+    fireEvent.click(screen.getByRole("link", { name: /Invitation to Quiet Hall/ }));
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(urls).toContain(`/api/notifications/${ROW.id}/read`);
+      expect(urls).toContain("/api/notifications?limit=20");
+    });
+  });
+
+  it("recovers from a failed Load more by reloading the first page (PR 21)", async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input);
+      if (url.includes("cursor=")) {
+        return Promise.reject(new Error("network down"));
+      }
+      return Promise.resolve(
+        jsonResponse(200, {
+          notifications: [ROW],
+          unread_count: 1,
+          has_more: true,
+          next_cursor: null,
+        }),
+      );
+    });
+
+    render(
+      <NotificationsInbox
+        {...PROPS}
+        initialHasMore
+        initialNextCursor="cursor-1"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(urls).toContain("/api/notifications?limit=20&cursor=cursor-1");
+      expect(urls).toContain("/api/notifications?limit=20");
+    });
+    expect(
+      screen.getByRole("button", { name: "Load more" }),
+    ).toBeInTheDocument();
+  });
 });

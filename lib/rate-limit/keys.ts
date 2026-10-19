@@ -88,6 +88,28 @@ export const GENERATE_LIMIT = { max: 10, windowSeconds: 60 } as const;
  */
 export const PLAN_LIMIT = { max: 10, windowSeconds: 60 } as const;
 
+/**
+ * Chat sends (`POST /api/rooms/[id]/messages`). Keyed per room, per
+ * sender: 30/60s bounds a scripted flood of one room while sitting far
+ * above any human's typing pace, and a second room's allowance is
+ * untouched.
+ */
+export const MESSAGE_LIMIT = { max: 30, windowSeconds: 60 } as const;
+
+/**
+ * Room creation (`POST /api/rooms`). Creating a room runs the `create_room`
+ * RPC with membership bookkeeping; 5/60s per account bounds scripted room
+ * churn while a real organizer never comes close.
+ */
+export const ROOM_CREATE_LIMIT = { max: 5, windowSeconds: 60 } as const;
+
+/**
+ * Notification preference saves (`PATCH /api/profile/notification-prefs`).
+ * A merged row update, mirroring PROFILE_LIMIT: 30/60s bounds a client
+ * retry loop while sitting far above any human's toggling pace.
+ */
+export const NOTIFICATION_PREFS_LIMIT = { max: 30, windowSeconds: 60 } as const;
+
 export function uploadUserKey(userId: string): string {
   return `upload:user:${userId}`;
 }
@@ -209,4 +231,28 @@ export function planKey(roomId: string | null, userId: string): string {
 
 export function planSpec(roomId: string | null, userId: string): RateLimitSpec {
   return { key: planKey(roomId, userId), ...PLAN_LIMIT };
+}
+
+export function messageKey(roomId: string, userId: string): string {
+  return `message:${roomId}:${userId}`;
+}
+
+export function messageSpec(roomId: string, userId: string): RateLimitSpec {
+  return { key: messageKey(roomId, userId), ...MESSAGE_LIMIT };
+}
+
+export function roomCreateKey(userId: string): string {
+  return `room_create:user:${userId}`;
+}
+
+export function roomCreateSpec(userId: string): RateLimitSpec {
+  return { key: roomCreateKey(userId), ...ROOM_CREATE_LIMIT };
+}
+
+export function notificationPrefsKey(userId: string): string {
+  return `notification_prefs:${userId}`;
+}
+
+export function notificationPrefsSpec(userId: string): RateLimitSpec {
+  return { key: notificationPrefsKey(userId), ...NOTIFICATION_PREFS_LIMIT };
 }

@@ -91,17 +91,17 @@ merged) plus 3 discovered during the audit (19–21). Each has a spec in
 | 08 | Room management (edit / close / delete) | [`PR-08`](prs/PR-08-room-management.md) | A | 07 | `0008` | Medium | Merged — [PR #8](https://github.com/chanukyareddygopala07/sdyroom/pull/8) (`61a99a0`) |
 | 09 | Moderation, reporting, blocking | [`PR-09`](prs/PR-09-moderation.md) | B | 07, chat | `0009` | Large | Merged — [PR #9](https://github.com/chanukyareddygopala07/sdyroom/pull/9) (`1be4633`) |
 | 10 | File & upload security hardening | [`PR-10`](prs/PR-10-resource-security.md) | B | merged main (05) | `0010` | Medium–Large | Merged — [PR #10](https://github.com/chanukyareddygopala07/sdyroom/pull/10) (`06cfea4`) |
-| 11 | Notifications | [`PR-11`](prs/PR-11-notifications.md) | A | 07, 09, 19, 20 | `0012` | Medium | In review — [PR #15](https://github.com/chanukyareddygopala07/sdyroom/pull/15) (`684a7bf`) |
-| 12 | AI document processing foundation | [`PR-12`](prs/PR-12-ai-document-foundation.md) | B | merged main (05) | `0013` | Large | In review — [PR #17](https://github.com/chanukyareddygopala07/sdyroom/pull/17) (`51a8eb9`) |
-| 13 | Ask My Notes | [`PR-13`](prs/PR-13-ask-my-notes.md) | B | 12 | `0018` | Large | In review — [PR #19](https://github.com/chanukyareddygopala07/sdyroom/pull/19) (`a6b72a4`) |
-| 14 | AI quizzes & flashcards | [`PR-14`](prs/PR-14-ai-quiz-flashcards.md) | A | 12 | `0019` | Large | In review — [PR #20](https://github.com/chanukyareddygopala07/sdyroom/pull/20) (`29787c4`) |
-| 15 | AI personal study planner | [`PR-15`](prs/PR-15-ai-study-planner.md) | A | 14, 16 | `0020` | Large | In review — PR #21 |
-| 16 | Study analytics & accountability | [`PR-16`](prs/PR-16-study-analytics.md) | A | 14 | `0021` | Medium | In review — [PR #22](https://github.com/chanukyareddygopala07/sdyroom/pull/22) (`430e787`) |
-| 17 | Advanced public room discovery | [`PR-17`](prs/PR-17-room-discovery.md) | A | 06 | `0022` | Medium | In review — [PR #23](https://github.com/chanukyareddygopala07/sdyroom/pull/23) (`77b5097`) |
-| 18 | Production security & reliability hardening | [`PR-18`](prs/PR-18-production-hardening.md) | B | 10, 19, 21 + core | none (spec's `0017` was stale) | XL | In review — [PR #24](https://github.com/chanukyareddygopala07/sdyroom/pull/24) (`ea56594`) |
-| 19 | Responsive shell, mobile nav & accessibility baseline | [`PR-19`](prs/PR-19-responsive-shell-a11y.md) | A | none | none | Medium | In review — [PR #13](https://github.com/chanukyareddygopala07/sdyroom/pull/13) (`b3acb0f`) |
-| 20 | Profile & settings (alias editing) | [`PR-20`](prs/PR-20-profile-settings.md) | B | none | `0023` (language column; spec's `0017` was stale) | Small | In review — [PR #25](https://github.com/chanukyareddygopala07/sdyroom/pull/25) (`0091113`) |
-| 21 | Quality & coverage baseline | [`PR-21`](prs/PR-21-quality-coverage-baseline.md) | B | none | none | Medium | Pending |
+| 11 | Notifications | [`PR-11`](prs/PR-11-notifications.md) | A | 07, 09, 19, 20 | `0012` | Medium | Merged — [PR #15](https://github.com/chanukyareddygopala07/sdyroom/pull/15) (`684a7bf`) |
+| 12 | AI document processing foundation | [`PR-12`](prs/PR-12-ai-document-foundation.md) | B | merged main (05) | `0013` | Large | Merged — [PR #17](https://github.com/chanukyareddygopala07/sdyroom/pull/17) (`51a8eb9`) |
+| 13 | Ask My Notes | [`PR-13`](prs/PR-13-ask-my-notes.md) | B | 12 | `0018` | Large | Merged — [PR #19](https://github.com/chanukyareddygopala07/sdyroom/pull/19) (`a6b72a4`) |
+| 14 | AI quizzes & flashcards | [`PR-14`](prs/PR-14-ai-quiz-flashcards.md) | A | 12 | `0019` | Large | Merged — [PR #20](https://github.com/chanukyareddygopala07/sdyroom/pull/20) (`29787c4`) |
+| 15 | AI personal study planner | [`PR-15`](prs/PR-15-ai-study-planner.md) | A | 14, 16 | `0020` | Large | Merged — [PR #21](https://github.com/chanukyareddygopala07/sdyroom/pull/21) (`a24e9ee`) |
+| 16 | Study analytics & accountability | [`PR-16`](prs/PR-16-study-analytics.md) | A | 14 | `0021` | Medium | Merged — [PR #22](https://github.com/chanukyareddygopala07/sdyroom/pull/22) (`430e787`) |
+| 17 | Advanced public room discovery | [`PR-17`](prs/PR-17-room-discovery.md) | A | 06 | `0022` | Medium | Merged — [PR #23](https://github.com/chanukyareddygopala07/sdyroom/pull/23) (`77b5097`) |
+| 18 | Production security & reliability hardening | [`PR-18`](prs/PR-18-production-hardening.md) | B | 10, 19, 21 + core | none (spec's `0017` was stale) | XL | Merged — [PR #24](https://github.com/chanukyareddygopala07/sdyroom/pull/24) (`ea56594`) |
+| 19 | Responsive shell, mobile nav & accessibility baseline | [`PR-19`](prs/PR-19-responsive-shell-a11y.md) | A | none | none | Medium | Merged — [PR #13](https://github.com/chanukyareddygopala07/sdyroom/pull/13) (`b3acb0f`) |
+| 20 | Profile & settings (alias editing) | [`PR-20`](prs/PR-20-profile-settings.md) | B | none | `0023` (language column; spec's `0017` was stale) | Small | Merged — [PR #25](https://github.com/chanukyareddygopala07/sdyroom/pull/25) (`0091113`) |
+| 21 | Quality & coverage baseline | [`PR-21`](prs/PR-21-quality-coverage-baseline.md) | B | none | none | Medium | In review — [PR #26](https://github.com/chanukyareddygopala07/sdyroom/pull/26) (`240c928`) |
 
 **Numbering note.** 06–18 follow the numbering requested in the brief; 19–21 are
 the PRs discovered by the audit. Numbers are an ordering *label*, not an order —
@@ -232,6 +232,10 @@ table over the headcount.
 ---
 
 ## 7. Recommended order and the top 3 to start now
+
+> Historical: this recommendation was written before the PR 06–20 merges.
+> The Status column of the table in §2 is the authoritative state; only
+> PR 21 remains open.
 
 **Start now:**
 

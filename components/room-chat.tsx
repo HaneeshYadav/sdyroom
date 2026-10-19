@@ -173,7 +173,9 @@ export function RoomChat({
 
         if (response.status === 401) {
           router.push("/auth/login");
-          return;
+          // The optimistic row would otherwise stay "Sending…" forever; the
+          // throw lands it in the same failed state every other refusal gets.
+          throw new Error("unauthenticated");
         }
 
         const payload = (await response.json().catch(() => null)) as

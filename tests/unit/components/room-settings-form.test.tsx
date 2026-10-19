@@ -94,6 +94,43 @@ describe("RoomSettingsForm", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
   });
 
+  it("locks every field while a save is in flight, then unlocks (PR 21)", async () => {
+    let resolveSave!: (value: unknown) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    render(<RoomSettingsForm room={ROOM} memberCount={2} />);
+    fireEvent.change(screen.getByLabelText("Room name"), {
+      target: { value: "Renamed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Saving..." })).toBeDisabled(),
+    );
+    for (const label of [
+      "Room name",
+      "Capacity",
+      "Status",
+      "Exam track",
+      "Subject",
+      "Language",
+      "Shared goal",
+    ]) {
+      expect(screen.getByLabelText(label)).toBeDisabled();
+    }
+
+    resolveSave(jsonResponse(200, { room: { ...ROOM, name: "Renamed" } }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Room name")).toBeEnabled(),
+    );
+    expect(screen.getByLabelText("Shared goal")).toBeEnabled();
+  });
+
   it("validates locally before any network call", async () => {
     const { container } = render(<RoomSettingsForm room={ROOM} memberCount={2} />);
 
@@ -200,6 +237,12 @@ describe("RoomSettingsForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("That name is too long.")).toBeInTheDocument();
+    const nameInput = screen.getByLabelText("Room name");
+    expect(nameInput).toHaveAttribute("aria-invalid", "true");
+    expect(nameInput).toHaveAttribute("aria-describedby", "settings-name-error");
+    expect(
+      document.getElementById("settings-name-error"),
+    ).toHaveTextContent("That name is too long.");
   });
 
   it("redirects an expired session to login", async () => {

@@ -81,10 +81,10 @@ function toFieldErrors(issues: ApiIssue[]): Record<string, string> {
   }, {});
 }
 
-function FieldError({ message }: { message?: string }) {
+function FieldError({ id, message }: { id?: string; message?: string }) {
   if (!message) return null;
   return (
-    <p className="text-sm text-error" role="alert">
+    <p id={id} className="text-sm text-error" role="alert">
       {message}
     </p>
   );
@@ -259,8 +259,11 @@ export function RoomSettingsForm({
                   maxLength={ROOM_NAME_MAX}
                   value={draft.name}
                   onChange={(e) => setField("name", e.target.value)}
+                  disabled={isSaving}
+                  aria-invalid={fieldErrors.name ? true : undefined}
+                  aria-describedby={fieldErrors.name ? "settings-name-error" : undefined}
                 />
-                <FieldError message={fieldErrors.name} />
+                <FieldError id="settings-name-error" message={fieldErrors.name} />
               </div>
 
               <div className="grid gap-2 sm:grid-cols-2">
@@ -277,6 +280,9 @@ export function RoomSettingsForm({
                     required
                     value={draft.capacity}
                     onChange={(e) => setField("capacity", e.target.value)}
+                    disabled={isSaving}
+                    aria-invalid={fieldErrors.capacity ? true : undefined}
+                    aria-describedby={fieldErrors.capacity ? "settings-capacity-error" : undefined}
                   />
                   {memberCount !== null && (
                     <p className="text-xs text-muted-foreground">
@@ -284,7 +290,7 @@ export function RoomSettingsForm({
                       capacity can&apos;t go below this.
                     </p>
                   )}
-                  <FieldError message={fieldErrors.capacity} />
+                  <FieldError id="settings-capacity-error" message={fieldErrors.capacity} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="settings-status">Status</Label>
@@ -293,6 +299,9 @@ export function RoomSettingsForm({
                     name="status"
                     value={draft.status}
                     onChange={(e) => setField("status", e.target.value)}
+                    disabled={isSaving}
+                    aria-invalid={fieldErrors.status ? true : undefined}
+                    aria-describedby={fieldErrors.status ? "settings-status-error" : undefined}
                   >
                     <option value="open">Open — anyone eligible can join</option>
                     <option value="closed">
@@ -303,7 +312,7 @@ export function RoomSettingsForm({
                     A closed room stays in discovery with a Closed badge, and
                     its members keep chat, files, timers and goals.
                   </p>
-                  <FieldError message={fieldErrors.status} />
+                  <FieldError id="settings-status-error" message={fieldErrors.status} />
                 </div>
               </div>
 
@@ -317,8 +326,11 @@ export function RoomSettingsForm({
                     maxLength={EXAM_TRACK_MAX}
                     value={draft.exam_track}
                     onChange={(e) => setField("exam_track", e.target.value)}
+                    disabled={isSaving}
+                    aria-invalid={fieldErrors.exam_track ? true : undefined}
+                    aria-describedby={fieldErrors.exam_track ? "settings-exam_track-error" : undefined}
                   />
-                  <FieldError message={fieldErrors.exam_track} />
+                  <FieldError id="settings-exam_track-error" message={fieldErrors.exam_track} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="settings-subject">Subject</Label>
@@ -329,8 +341,11 @@ export function RoomSettingsForm({
                     maxLength={SUBJECT_MAX}
                     value={draft.subject}
                     onChange={(e) => setField("subject", e.target.value)}
+                    disabled={isSaving}
+                    aria-invalid={fieldErrors.subject ? true : undefined}
+                    aria-describedby={fieldErrors.subject ? "settings-subject-error" : undefined}
                   />
-                  <FieldError message={fieldErrors.subject} />
+                  <FieldError id="settings-subject-error" message={fieldErrors.subject} />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="settings-language">Language</Label>
@@ -341,8 +356,11 @@ export function RoomSettingsForm({
                     maxLength={LANGUAGE_MAX}
                     value={draft.language}
                     onChange={(e) => setField("language", e.target.value)}
+                    disabled={isSaving}
+                    aria-invalid={fieldErrors.language ? true : undefined}
+                    aria-describedby={fieldErrors.language ? "settings-language-error" : undefined}
                   />
-                  <FieldError message={fieldErrors.language} />
+                  <FieldError id="settings-language-error" message={fieldErrors.language} />
                 </div>
               </div>
 
@@ -355,8 +373,11 @@ export function RoomSettingsForm({
                   maxLength={SHARED_GOAL_MAX}
                   value={draft.shared_goal}
                   onChange={(e) => setField("shared_goal", e.target.value)}
+                  disabled={isSaving}
+                  aria-invalid={fieldErrors.shared_goal ? true : undefined}
+                  aria-describedby={fieldErrors.shared_goal ? "settings-shared_goal-error" : undefined}
                 />
-                <FieldError message={fieldErrors.shared_goal} />
+                <FieldError id="settings-shared_goal-error" message={fieldErrors.shared_goal} />
               </div>
 
               {formError && (
@@ -365,7 +386,7 @@ export function RoomSettingsForm({
                 </p>
               )}
               {savedMessage && !formError && (
-                <p className="text-sm text-green-600" role="status">
+                <p className="text-sm text-success" role="status">
                   {savedMessage}
                 </p>
               )}

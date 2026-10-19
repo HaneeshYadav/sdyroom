@@ -45,10 +45,14 @@ Full details: [`docs/local-supabase.md`](docs/local-supabase.md).
 CI (`.github/workflows/ci.yml`) must be green. Run the same gates locally:
 
 ```bash
-npm run lint          # ESLint (flat config)
-npx tsc --noEmit      # type check (what the CI "types" step runs; there is no typecheck script)
-npm test              # unit suite — no network, no stack needed
-npm run build         # production build
+npm run lint            # ESLint (flat config)
+npx tsc --noEmit        # type check (what the CI "types" step runs; there is no typecheck script)
+npm test                # unit suite — no network, no stack needed
+npm run test:coverage   # unit suite + coverage floors (statements 74% / branches 64%)
+npm run check:env       # process.env reads match .env.example
+npm run check:counts    # documented test counts match reality (pass -- --unit-json=… after a run for totals)
+npm run check:links     # relative markdown links resolve
+npm run build           # production build
 ```
 
 If your change touches anything the slower suites cover, also run them against the
@@ -80,6 +84,7 @@ Update the docs in the same pull request when applicable:
 | Authorization, policies, secrets or abuse controls | `docs/SECURITY.md` |
 | Schema, grants or storage setup | `docs/local-supabase.md` |
 | Structure, data model or decision map | `docs/ARCHITECTURE.md` |
+| Added, removed or renamed test files/specs | `README.md` suite line, `tests/integration/README.md`, `tests/e2e/README.md`, and any changed `docs/SECURITY.md` `(N)` — then `npm run check:counts` |
 | What shipped / what is next | `docs/milestones.md`, `docs/PR_ROADMAP.md` |
 | Test counts quoted anywhere | `README.md`, both `tests/*/README.md` |
 

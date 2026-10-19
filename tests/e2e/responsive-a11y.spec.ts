@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { createRoomViaUi, focusTimer } from "./helpers/rooms";
 import { signUpAndOnboard } from "./helpers/users";
@@ -7,7 +8,8 @@ import { signUpAndOnboard } from "./helpers/users";
  * mechanism per breakpoint (inline links from `md:`, the labelled disclosure
  * below it), no horizontal overflow on a phone, a keyboard-operable sheet
  * that returns focus where it started, the skip link landing on `#main`,
- * and the focus timer's countdown kept out of the live regions.
+ * the focus timer's countdown kept out of the live regions, and automated
+ * axe scans (WCAG 2.1 A/AA) over the public, auth, and signed-in surfaces.
  */
 
 const PHONE = { width: 375, height: 812 };
@@ -22,6 +24,20 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
     widths.scrollWidth,
     `expected no horizontal overflow (scrollWidth=${widths.scrollWidth}, clientWidth=${widths.clientWidth})`,
   ).toBeLessThanOrEqual(widths.clientWidth + 1);
+}
+
+async function expectNoAxeViolations(page: Page): Promise<void> {
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+    .analyze();
+  expect(
+    results.violations.map(
+      (violation) =>
+        `${violation.id}: ${violation.help}\n  ${violation.nodes
+          .map((node) => node.html)
+          .join("\n  ")}`,
+    ),
+  ).toEqual([]);
 }
 
 test.describe("mobile navigation", () => {
@@ -171,5 +187,33 @@ test.describe("phone layouts", () => {
       "polite",
     );
     await expectNoHorizontalOverflow(page);
+  });
+});
+
+test.describe("axe scans (WCAG 2.1 A/AA)", () => {
+  test.use({ viewport: DESKTOP });
+
+  test("public and auth pages pass", async ({ page }) => {
+    for (const path of ["/", "/auth/login"]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await expectNoAxeViolations(page);
+    }
+  });
+
+  test("room discovery and settings pass", async ({ page }) => {
+    await signUpAndOnboard(page, "axe-routes");
+    for (const path of ["/rooms", "/settings"]) {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await expectNoAxeViolations(page);
+    }
+  });
+
+  test("the room workspace passes", async ({ page }) => {
+    await signUpAndOnboard(page, "axe-room");
+    const room = await createRoomViaUi(page, { label: "axe-room" });
+    await expect(page).toHaveURL(new RegExp(`/rooms/${room.id}$`));
+    await expectNoAxeViolations(page);
   });
 });

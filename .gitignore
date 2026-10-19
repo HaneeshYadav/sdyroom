@@ -42,3 +42,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Vitest JSON reports written by the CI/doc-count gates (local runs leave these)
+/unit-results.json
+/integration-results.json

@@ -201,7 +201,7 @@ test("a room without an indexed document disables-and-explains instead of hiding
   const room = await createRoomViaUi(page, { label: "Generate empty" });
 
   await page.goto(`/rooms/${room.id}`);
-  const entry = page.getByRole("button", { name: /Quizzes and decks/ });
+  const entry = page.getByRole("button", { name: /Quizzes & decks/ });
   await expect(entry).toBeVisible();
   await expect(entry).toBeDisabled();
   await expect(entry).toHaveAttribute(

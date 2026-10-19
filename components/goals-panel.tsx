@@ -41,7 +41,7 @@ export function GoalsPanel({
   const [targetMinutes, setTargetMinutes] = useState("");
   const [targetCount, setTargetCount] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pendingGoalId, setPendingGoalId] = useState<string | null>(null);
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   const readError = async (response: Response): Promise<string | null> => {
@@ -54,8 +54,14 @@ export function GoalsPanel({
 
     const minutes = targetMinutes.trim();
     const count = targetCount.trim();
+    const trimmedTitle = title.trim();
     const minutesValue = minutes === "" ? null : Number(minutes);
     const countValue = count === "" ? null : Number(count);
+
+    if (trimmedTitle === "") {
+      setError("Give the goal a title.");
+      return;
+    }
 
     if (
       minutesValue !== null &&
@@ -89,7 +95,7 @@ export function GoalsPanel({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title,
+          title: trimmedTitle,
           ...(minutesValue === null
             ? {}
             : { target_seconds: minutesValue * 60 }),
@@ -126,7 +132,7 @@ export function GoalsPanel({
   };
 
   const updateStatus = async (goal: StudyGoal) => {
-    setPendingGoalId(goal.id);
+    setPendingIds((current) => new Set(current).add(goal.id));
     setError(null);
 
     try {
@@ -160,12 +166,16 @@ export function GoalsPanel({
     } catch {
       setError("Could not reach the server. Please try again.");
     } finally {
-      setPendingGoalId(null);
+      setPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(goal.id);
+        return next;
+      });
     }
   };
 
   const removeGoal = async (goal: StudyGoal) => {
-    setPendingGoalId(goal.id);
+    setPendingIds((current) => new Set(current).add(goal.id));
     setError(null);
 
     try {
@@ -191,7 +201,11 @@ export function GoalsPanel({
     } catch {
       setError("Could not reach the server. Please try again.");
     } finally {
-      setPendingGoalId(null);
+      setPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(goal.id);
+        return next;
+      });
     }
   };
 
@@ -275,7 +289,7 @@ export function GoalsPanel({
         <ul className="flex flex-col gap-2">
           {goals.map((goal) => {
             const target = describeTarget(goal);
-            const isPending = pendingGoalId === goal.id;
+            const isPending = pendingIds.has(goal.id);
             return (
               <li
                 key={goal.id}

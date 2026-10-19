@@ -210,4 +210,85 @@ describe("GoalsPanel", () => {
     );
     expect(screen.getByText("Finish chapter 4")).toBeInTheDocument();
   });
+
+  it("refuses a whitespace-only goal title before touching the server (PR 21)", async () => {
+    render(<GoalsPanel roomId={ROOM} initialGoals={[]} />);
+    fireEvent.change(screen.getByLabelText("Goal title"), {
+      target: { value: "   " },
+    });
+    const form = document.querySelector("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Give the goal a title.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("trims the goal title it sends (PR 21)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(201, {
+        goal: { ...activeGoal, title: "Revise thermodynamics" },
+      }),
+    );
+
+    render(<GoalsPanel roomId={ROOM} initialGoals={[]} />);
+    fireEvent.change(screen.getByLabelText("Goal title"), {
+      target: { value: "  Revise thermodynamics  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add goal" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/rooms/${ROOM}/goals`,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ title: "Revise thermodynamics" }),
+        }),
+      ),
+    );
+  });
+
+  it("keeps each goal's own pending state while another goal's op finishes (PR 21)", async () => {
+    const goalB = {
+      ...activeGoal,
+      id: "55555555-5555-4555-8555-555555555555",
+      title: "Second goal",
+    };
+    let resolvePatch!: (value: unknown) => void;
+    let resolveDelete!: (value: unknown) => void;
+    fetchMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolvePatch = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveDelete = resolve;
+          }),
+      );
+
+    render(<GoalsPanel roomId={ROOM} initialGoals={[activeGoal, goalB]} />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Complete" })[0]);
+    fireEvent.click(
+      screen.getByRole("button", { name: `Delete goal ${goalB.title}` }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    resolvePatch(jsonResponse(200, { goal: { ...activeGoal, status: "completed" } }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Reopen" })).toBeInTheDocument(),
+    );
+
+    expect(
+      screen.getByRole("button", { name: `Delete goal ${goalB.title}` }),
+    ).toBeDisabled();
+
+    resolveDelete(jsonResponse(200, { deleted: true }));
+    await waitFor(() => expect(screen.queryByText(goalB.title)).toBeNull());
+  });
 });

@@ -50,8 +50,11 @@ export function NotificationBell({
   const [recent, setRecent] = useState<NotificationView[] | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const countSeqRef = useRef(0);
+  const listSeqRef = useRef(0);
 
   const refreshCount = useCallback(async () => {
+    const seq = ++countSeqRef.current;
     try {
       const response = await fetch("/api/notifications/unread-count", {
         cache: "no-store",
@@ -63,6 +66,10 @@ export function NotificationBell({
       const body = (await response.json().catch(() => null)) as
         | { unread_count?: number }
         | null;
+      if (seq !== countSeqRef.current) {
+        // A newer read or an optimistic write owns the badge now.
+        return;
+      }
       if (body && typeof body.unread_count === "number") {
         setUnreadCount(body.unread_count);
       }
@@ -73,6 +80,8 @@ export function NotificationBell({
   }, [router]);
 
   const refreshList = useCallback(async () => {
+    const seq = ++listSeqRef.current;
+    const countSeq = ++countSeqRef.current;
     try {
       const response = await fetch("/api/notifications?limit=8", {
         cache: "no-store",
@@ -84,9 +93,15 @@ export function NotificationBell({
       const body = (await response.json().catch(() => null)) as
         | ListResponse
         | null;
+      if (seq !== listSeqRef.current) {
+        return;
+      }
       if (body?.notifications) {
         setRecent(body.notifications);
-        if (typeof body.unread_count === "number") {
+        if (
+          typeof body.unread_count === "number" &&
+          countSeq === countSeqRef.current
+        ) {
           setUnreadCount(body.unread_count);
         }
         // Announce only rows this tab has not already seen, so a refresh
@@ -136,6 +151,7 @@ export function NotificationBell({
   }, [userId, refreshCount, refreshList]);
 
   const markRead = async (id: string) => {
+    countSeqRef.current += 1;
     setUnreadCount((count) => Math.max(0, count - 1));
     try {
       // keepalive: the deep link navigates without waiting for this POST, and
@@ -146,21 +162,30 @@ export function NotificationBell({
         method: "POST",
         keepalive: true,
       });
+      void refreshCount();
     } catch {
       void refreshCount();
     }
   };
 
   const markAllRead = async () => {
+    countSeqRef.current += 1;
+    listSeqRef.current += 1;
     setUnreadCount(0);
     setRecent((rows) =>
       rows?.map((row) => ({ ...row, read_at: row.read_at ?? new Date().toISOString() })) ?? rows,
     );
     try {
-      await fetch("/api/notifications/read-all", {
+      const response = await fetch("/api/notifications/read-all", {
         method: "POST",
         keepalive: true,
       });
+      if (!response.ok) {
+        void refreshCount();
+        void refreshList();
+        return;
+      }
+      void refreshCount();
     } catch {
       void refreshCount();
     }
@@ -179,7 +204,7 @@ export function NotificationBell({
           <Button
             variant="ghost"
             size="sm"
-            className="relative size-9 p-0"
+            className="relative size-11 p-0"
             aria-label={
               unreadCount > 0
                 ? `${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`

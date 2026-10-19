@@ -13,7 +13,7 @@ Work top to bottom; each item names the command or evidence that proves it.
    the production project (Vercel → Settings → Environment Variables), and
    `npm run check:env` passes in CI (the `quality` job runs it on every push).
 2. **Migrations applied.** `supabase db push` (or the hosted SQL editor for
-   each file in order) has applied `0001`–`0022`. Verify:
+   each file in order) has applied `0001`–`0023`. Verify:
    `select count(*) from supabase_migrations.schema_migrations;` matches the
    number of files in `supabase/migrations/`.
 3. **Health endpoints answer.** After the first production deploy:

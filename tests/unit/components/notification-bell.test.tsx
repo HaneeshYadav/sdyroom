@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { NotificationBell } from "@/components/notifications/notification-bell";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { push, fetchMock, subscribe, watchWakeups, createClientMock } = vi.hoisted(() => ({
@@ -246,5 +246,123 @@ describe("NotificationBell", () => {
     await waitFor(() => {
       expect(push).toHaveBeenCalledWith("/auth/login");
     });
+  });
+  it("restores the badge when a mark-read write is refused (PR 21)", async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input);
+      if (url.includes(`/${ROW.id}/read`)) {
+        return Promise.resolve(jsonResponse(500, { error: {} }));
+      }
+      return Promise.resolve(
+        jsonResponse(200, { notifications: [ROW], unread_count: 1 }),
+      );
+    });
+
+    render(<NotificationBell userId="u1" initialUnreadCount={1} />);
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    await waitFor(() => {
+      expect(screen.getByTestId("notification-row")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("link", { name: /Invitation to Quiet Hall/ }));
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([input]) => String(input));
+      expect(
+        urls.filter((url) => url === `/api/notifications/${ROW.id}/read`),
+      ).toHaveLength(1);
+      expect(urls).toContain("/api/notifications/unread-count");
+    });
+  });
+
+  it("drops a count read that was already in flight when mark-all lands (PR 21 CI)", async () => {
+    let resolveStale!: (value: unknown) => void;
+    const stale = new Promise((resolve) => {
+      resolveStale = resolve;
+    });
+    let countReads = 0;
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input);
+      if (url === "/api/notifications?limit=8") {
+        return Promise.resolve(
+          jsonResponse(200, { notifications: [ROW], unread_count: 1 }),
+        );
+      }
+      if (url === "/api/notifications/unread-count") {
+        countReads += 1;
+        if (countReads === 1) return stale;
+        return Promise.resolve(jsonResponse(200, { unread_count: 0 }));
+      }
+      return Promise.resolve(jsonResponse(200, {}));
+    });
+
+    render(<NotificationBell userId="u1" initialUnreadCount={1} />);
+    fireEvent.click(screen.getByTestId("notification-bell"));
+    await waitFor(() => {
+      expect(screen.getByTestId("notifications-mark-all")).toBeTruthy();
+    });
+
+    // A wake-up issues a count read that will answer with the pre-write
+    // number, and it stays in flight across the mark-all click.
+    const wakeup = (
+      watchWakeups.mock.calls[0] as unknown as [() => void]
+    )[0];
+    wakeup();
+    expect(countReads).toBe(1);
+
+    fireEvent.click(screen.getByTestId("notifications-mark-all"));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/notifications/read-all", {
+        method: "POST",
+        keepalive: true,
+      });
+    });
+
+    // The post-write reconciling read lands first and clears the badge.
+    await waitFor(() => {
+      expect(screen.queryByTestId("notification-badge")).toBeNull();
+    });
+
+    // The pre-write answer arrives last and must not resurrect it.
+    await act(async () => {
+      resolveStale(jsonResponse(200, { unread_count: 1 }));
+    });
+    expect(screen.queryByTestId("notification-badge")).toBeNull();
+  });
+
+  it("keeps the newer of two racing count reads (PR 21 CI)", async () => {
+    let resolveFirst!: (value: unknown) => void;
+    const first = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    let countReads = 0;
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input);
+      if (url === "/api/notifications/unread-count") {
+        countReads += 1;
+        if (countReads === 1) return first;
+        return Promise.resolve(jsonResponse(200, { unread_count: 0 }));
+      }
+      return Promise.resolve(jsonResponse(200, { notifications: [] }));
+    });
+
+    render(<NotificationBell userId="u1" initialUnreadCount={1} />);
+
+    // Two wake-ups race: the second read answers first with the newer truth,
+    // the first is still in flight with the older one.
+    const wakeup = (
+      watchWakeups.mock.calls[0] as unknown as [() => void]
+    )[0];
+    wakeup();
+    wakeup();
+    expect(countReads).toBe(2);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("notification-badge")).toBeNull();
+    });
+
+    await act(async () => {
+      resolveFirst(jsonResponse(200, { unread_count: 1 }));
+    });
+    expect(screen.queryByTestId("notification-badge")).toBeNull();
   });
 });

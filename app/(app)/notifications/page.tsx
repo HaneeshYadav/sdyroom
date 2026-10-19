@@ -6,6 +6,7 @@ import {
   listNotifications,
   NotificationQueryError,
 } from "@/lib/notifications/queries";
+import { errorFields, logError } from "@/lib/server/log";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
@@ -37,7 +38,7 @@ export default async function NotificationsPage() {
     getNotificationPrefs(supabase, data.claims.sub),
   ]).catch((error: unknown) => {
     if (error instanceof NotificationQueryError) {
-      console.error("[notifications page] load failed:", error);
+      logError("[notifications page] load failed:", errorFields(error));
     }
     throw error;
   });

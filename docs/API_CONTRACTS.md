@@ -767,12 +767,13 @@ with nothing to cache or invalidate. The category map: `invite` (invitations),
 `moderation` (mutes, removals, report outcomes), `resource` (processing
 updates), `ai` (task completion), plus a `default` key for anything
 unmapped; `system` events ignore preferences and always deliver. The
-preferences form currently mounts on the inbox page — PR 20's settings page
-will absorb it unchanged.
+preferences form mounts on the inbox page and, since PR 20, on the settings
+page — the same component in both places.
 
 `200 { "prefs": { "default": "all", "invite": "all", "moderation": "all",
 "ai": "all", "resource": "all" } }` · `400 validation` / `invalid_json` ·
-`401` · `500 notifications_failed`.
+`401` · `429 rate_limited` (`notification_prefs:{userId}`, 30 / 60 s,
+`Retry-After`) · `500 notifications_failed`.
 
 ### Producers (the only writers)
 
@@ -1573,6 +1574,9 @@ and proceeds only while the take returns `true`.
 | `POST /api/rooms/[id]/generate` · `POST …/generate/[artifactId]/step` (PR 14, each one full generation pass) | `generate:{roomId}:{userId}` | 10 / 60 s |
 | `POST /api/plans` · `POST /api/plans/[planId]/step` (PR 15, each one full generation pass) | `plan:{roomId\|personal}:{userId}` | 10 / 60 s |
 | `PATCH /api/profile` (PR 20, own-row settings edits) | `profile:{userId}` | 30 / 60 s |
+| `POST /api/rooms/[id]/messages` (PR 21, chat send) | `message:{roomId}:{userId}` | 30 / 60 s |
+| `POST /api/rooms` (PR 21, room creation) | `room_create:user:{userId}` | 5 / 60 s |
+| `PATCH /api/profile/notification-prefs` (PR 21, preference writes) | `notification_prefs:{userId}` | 30 / 60 s |
 
 These numbers are part of the contract (`lib/rate-limit/keys.ts` is the
 implementation mirror); change both together. The per-user/per-target split on
@@ -1603,7 +1607,7 @@ the caller sent one — the `x-request-id` echoed back.
 
 | Concern | Status |
 | --- | --- |
-| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10 + PR 12 + PR 13 + PR 14 + PR 15 + PR 20): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes, invitations, the AI ingest/sweep routes, ask, generate/step, plan create/step, and profile edits. Session-gated pages and paginated reads are deliberately unthrottled (including `GET /api/ai/usage`, artifact/attempt/due listings); PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
+| Rate limiting | **Implemented for the routes listed in "Rate limits"** (PR 10 + PR 12 + PR 13 + PR 14 + PR 15 + PR 20 + PR 21): uploads, deletes, signed-URL issuance, sweeps, reports, blocks, mutes, invitations, the AI ingest/sweep routes, ask, generate/step, plan create/step, profile edits, message sends, room creation, and notification-preference writes. Session-gated pages and paginated reads are deliberately unthrottled (including `GET /api/ai/usage`, artifact/attempt/due listings); PR 11's notification reader routes follow the same rule (own-row reads, no throttle) while its two producer RPCs ride the parent mutation routes' existing windows. |
 | Malware scanning | **Not implemented and not claimed.** Only signature/UTF-8 validation runs. |
 | Metadata editing (`PATCH`) | Not exposed. The `UPDATE` grant and policy exist and are exercised by the integration suite so the column set is provably narrow; no UI or endpoint needs renaming yet. |
 | Public/permanent file URLs | Never. Only short-lived signed URLs. |

@@ -52,7 +52,7 @@ describe("LoginForm", () => {
     expect(screen.getByRole("button", { name: "Login" })).toBeEnabled();
   });
 
-  it("shows the Supabase error message and does not navigate when sign-in fails", async () => {
+  it("shows a fixed copy line and does not navigate when sign-in fails", async () => {
     signInWithPassword.mockResolvedValue({
       error: new Error("Invalid login credentials"),
     });
@@ -62,13 +62,30 @@ describe("LoginForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
 
     expect(
-      await screen.findByText("Invalid login credentials"),
+      await screen.findByText("Email or password is incorrect."),
     ).toBeInTheDocument();
     expect(signInWithPassword).toHaveBeenCalledWith({
       email: "user@example.com",
       password: "sup3r-secret",
     });
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("never renders an unrecognized provider message verbatim", async () => {
+    signInWithPassword.mockResolvedValue({
+      error: new Error("Internal trace: user 42 at db shard 7"),
+    });
+    render(<LoginForm />);
+    fillCredentials();
+
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+
+    expect(
+      await screen.findByText("Something went wrong. Please try again."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/db shard 7/),
+    ).toBeNull();
   });
 
   it("navigates to the protected route after a successful sign-in", async () => {
@@ -79,7 +96,7 @@ describe("LoginForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/rooms"));
-    expect(screen.queryByText("Invalid login credentials")).toBeNull();
+    expect(screen.queryByText("Email or password is incorrect.")).toBeNull();
   });
 
   it("disables the submit button and shows a loading label while sign-in is pending", async () => {

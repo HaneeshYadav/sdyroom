@@ -16,6 +16,32 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+/**
+ * Renders a fixed, reviewed copy line for every sign-in failure instead of
+ * the raw provider message (PR 21): Supabase errors can echo addresses or
+ * internals, and the alert text is user-facing product copy. Only known
+ * conditions get tailored wording; everything else is generic.
+ */
+function loginErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "Something went wrong. Please try again.";
+  }
+  const message = error.message.toLowerCase();
+  if (message.includes("invalid login credentials")) {
+    return "Email or password is incorrect.";
+  }
+  if (message.includes("email not confirmed")) {
+    return "Check your inbox for a confirmation link, then try again.";
+  }
+  if (message.includes("too many requests") || message.includes("rate limit")) {
+    return "Too many attempts. Wait a moment and try again.";
+  }
+  if (message.includes("fetch") || message.includes("network")) {
+    return "We could not reach the server. Check your connection and try again.";
+  }
+  return "Something went wrong. Please try again.";
+}
+
 export function LoginForm({
   className,
   ...props
@@ -41,7 +67,7 @@ export function LoginForm({
       // An active session lands in room discovery.
       router.push("/rooms");
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      setError(loginErrorMessage(error));
     } finally {
       setIsLoading(false);
     }

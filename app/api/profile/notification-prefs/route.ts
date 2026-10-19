@@ -9,6 +9,8 @@ import { updateNotificationPrefsSchema } from "@/lib/notifications/validation";
 import { createClient } from "@/lib/supabase/server";
 import { withLogging } from "@/lib/server/with-logging";
 import { errorFields, logError } from "@/lib/server/log";
+import { rateLimitedResponse } from "@/lib/rate-limit/check";
+import { notificationPrefsSpec } from "@/lib/rate-limit/keys";
 
 /**
  * PATCH /api/profile/notification-prefs — partial update of the caller's
@@ -26,6 +28,7 @@ import { errorFields, logError } from "@/lib/server/log";
  * | 200 | `{ "prefs": { "default": "all", "invite": "all", "moderation": "all", "ai": "all", "resource": "all" } }` |
  * | 400 | `{ "error": { "code": "validation" } \| { "code": "invalid_json" } }` |
  * | 401 | `{ "error": { "code": "unauthenticated" } }` |
+ * | 429 | `{ "error": { "code": "rate_limited" } }` + `Retry-After` |
  * | 500 | `{ "error": { "code": "notifications_failed" } }` |
  */
 async function PATCH_raw(request: NextRequest) {
@@ -44,6 +47,15 @@ async function PATCH_raw(request: NextRequest) {
   const parsed = updateNotificationPrefsSchema.safeParse(parsedBody.body);
   if (!parsed.success) {
     return validationResponse(parsed.error);
+  }
+
+  const limited = await rateLimitedResponse(
+    supabase,
+    notificationPrefsSpec(data.claims.sub),
+    "You're saving preferences too quickly. Pause a moment and try again.",
+  );
+  if (limited) {
+    return limited;
   }
 
   try {

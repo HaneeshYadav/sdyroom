@@ -28,6 +28,7 @@ import {
 } from "@/lib/moderation/queries";
 import { fetchResourceQuota } from "@/lib/resources/quota";
 import { listResources } from "@/lib/resources/queries";
+import { errorFields, logError } from "@/lib/server/log";
 import { createClient } from "@/lib/supabase/server";
 import { MESSAGE_PAGE_SIZE_DEFAULT } from "@/lib/validation/chat";
 import { RESOURCE_PAGE_SIZE_DEFAULT } from "@/lib/validation/resources";
@@ -108,7 +109,7 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
       // read failure hides the usage line, it never fails the workspace.
       fetchResourceQuota(supabase, parsedRoomId.data).catch(
         (error: unknown) => {
-          console.error("[rooms/page] quota fetch failed:", error);
+          logError("[rooms/page] quota fetch failed:", errorFields(error));
           return null;
         },
       ),
@@ -122,7 +123,7 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
         roomId: parsedRoomId.data,
         viewerId,
       }).catch((error: unknown) => {
-        console.error("[rooms/page] artifact list failed:", error);
+        logError("[rooms/page] artifact list failed:", errorFields(error));
         return [];
       }),
     ]);
@@ -248,7 +249,7 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
                 variant="outline"
                 disabled
                 title="Index at least one document in Resources first."
-                aria-label="Quizzes and decks (unavailable — index a document first)"
+                aria-label="Quizzes & decks (unavailable — index a document first)"
               >
                 Quizzes &amp; decks
               </Button>
@@ -347,6 +348,7 @@ export default async function RoomWorkspacePage({ params }: RoomPageProps) {
         key={`resources-${room.id}`}
         scope={{ kind: "room", roomId: room.id }}
         initialResources={resources.resources}
+        initialHasMore={resources.has_more}
         quota={quota}
         idPrefix={`room-${room.id}`}
         level={2}

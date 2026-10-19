@@ -89,10 +89,16 @@ export function NotificationsInbox({
     try {
       // keepalive, same as the bell: this write must survive whatever
       // navigation the row's deep link (or a reload) starts right after it.
-      await fetch(`/api/notifications/${id}/read`, {
+      const response = await fetch(`/api/notifications/${id}/read`, {
         method: "POST",
         keepalive: true,
       });
+      if (!response.ok) {
+        // The row already shows read optimistically; a refused write must
+        // fall back to the server's truth instead of leaving a phantom.
+        void refresh();
+        return;
+      }
     } catch {
       void refresh();
     }
@@ -106,10 +112,14 @@ export function NotificationsInbox({
     );
     setUnreadCount(0);
     try {
-      await fetch("/api/notifications/read-all", {
+      const response = await fetch("/api/notifications/read-all", {
         method: "POST",
         keepalive: true,
       });
+      if (!response.ok) {
+        void refresh();
+        return;
+      }
     } catch {
       void refresh();
     } finally {
@@ -137,6 +147,10 @@ export function NotificationsInbox({
         setHasMore(Boolean(body.has_more));
         setNextCursor(body.next_cursor ?? null);
       }
+    } catch {
+      // A failed page fetch is an unhandled rejection otherwise; reload the
+      // first page so the list stays honest and the button remains usable.
+      void refresh();
     } finally {
       setLoadingMore(false);
     }

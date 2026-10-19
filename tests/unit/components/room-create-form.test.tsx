@@ -114,6 +114,15 @@ describe("RoomCreateForm", () => {
         alert.textContent?.includes("Capacity must be at least 1"),
       ),
     ).toBe(true);
+    const capacityInput = document.getElementById("capacity");
+    expect(capacityInput).toHaveAttribute("aria-invalid", "true");
+    expect(capacityInput).toHaveAttribute(
+      "aria-describedby",
+      "create-capacity-error",
+    );
+    expect(document.getElementById("create-capacity-error")).toHaveTextContent(
+      "Capacity must be at least 1",
+    );
     expect(push).not.toHaveBeenCalled();
   });
 

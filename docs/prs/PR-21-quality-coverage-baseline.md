@@ -1,8 +1,134 @@
 # PR 21 — Quality and coverage baseline (tests, CI gates, docs hygiene)
 
-**Status:** specification only — no GitHub PR exists.
+**Status:** In review — [PR #26](https://github.com/chanukyareddygopala07/sdyroom/pull/26)
+(`240c928`); see "Implementation status" for verified evidence.
 **Owner:** Dev B (Cursor) · **Complexity:** Medium · **Migration:** none
 **Depends on:** nothing to start (free lane); its CI gates should land **early** so PRs 06–18 inherit them — see "Sequencing note"
+
+---
+
+### Implementation status (2026-10-18)
+
+Everything below was verified by running the commands, not by reading the
+spec. Where this spec's text is stale, the reconciliation is recorded here
+rather than by silently rewriting the requirement.
+
+**Landed on the branch (all green locally):**
+
+- Coverage tooling on **vitest** (the unit runner in this repo is vitest, not
+  Jest — the spec predates that choice): `npm run test:coverage` measures
+  `lib/**` + `app/api/**`, reporters text + lcov + json-summary, with
+  **statements 74% / branches 64%** floors (measured baseline 75.56% / 66.01%
+  on 2026-10-18 minus 1pp, per the spec's own rule).
+- `scripts/check-doc-counts.mjs` (`npm run check:counts`): README "Current
+  suite" line, the integration/e2e README file tables, and every
+  `docs/SECURITY.md` `(N)` are verified against `vitest list`,
+  `playwright --list`, and (when supplied) the run JSONs; `--print`
+  regenerates the README line. Unit-tested by
+  `tests/unit/scripts/check-doc-counts.test.ts`.
+- `scripts/check-doc-links.mjs` (`npm run check:links`): relative markdown
+  links and same-document anchors resolve (fence- and inline-code-aware).
+  Unit-tested by `tests/unit/scripts/check-doc-links.test.ts`.
+- CI wiring: the quality job runs unit tests **with coverage** and a JSON
+  report, then `check:counts --unit-json` and `check:links`, and uploads
+  `coverage/lcov.info`; the integration job runs with a JSON report and
+  `check:counts --integration-json`.
+- Contributor docs: `AGENTS.md` (root), `docs/DEVELOPMENT.md`, and
+  `.github/PULL_REQUEST_TEMPLATE.md` created; `docs/ARCHITECTURE.md` refreshed
+  (it existed — the spec's "does not exist" claim was stale: 24-table data
+  model, notifications/AI channels, coverage + doc gates, env-var table).
+  `docs/RELEASE.md` migration range updated to `0001`–`0023`.
+- Lint ratchet: `no-console` is an ESLint error in `app/**/page.tsx` and
+  `app/api/**` (server logging goes through `lib/server/log.ts`);
+  `dangerouslySetInnerHTML` is banned in JSX via `no-restricted-syntax`.
+  Baseline: **exactly four** `eslint-disable` comments, listed in `AGENTS.md`
+  — adding a fifth is a finding.
+- Axe e2e scans (WCAG 2.1 A/AA) over `/`, `/auth/login`, `/rooms`,
+  `/settings` and the room workspace; one real violation found and fixed
+  (the disabled "Quizzes & decks" button's `aria-label` did not contain its
+  visible text).
+- Route fallbacks added for the inventoried gaps: `loading.tsx` + `error.tsx`
+  for `/invitations` and `/onboarding`, `loading.tsx` for `/resources` and
+  `/rooms/new`, plus `rooms/new/error.tsx` (the parent `rooms/error.tsx`
+  talked about "loading public rooms", which mislabels the create form).
+- `docs/milestones.md` rows for PRs 13/15/21/22/23/24/25 moved to **done**
+  with verified merge SHAs; `docs/PR_ROADMAP.md` statuses synced to merged;
+  `docs/API_CONTRACTS.md` and `docs/SECURITY.md` rate-limit enumerations
+  gained the three new PR-21 windows (messages 30/60, room create 5/60,
+  notification prefs 30/60).
+
+**Gate demonstrations (required by "CI verification"):**
+
+- Coverage floor: temporarily raising the statements floor to 99% made
+  `npm run test:coverage` exit 1 with
+  `ERROR: Coverage for statements (75.56%) does not meet global threshold
+  (99%)`; the floor was restored to 74.
+- Counts drift: the README line was edited from the real numbers and
+  `check:counts` exited 1 naming the mismatch — and it additionally caught
+  pre-existing real drift (unit files 138→143, e2e tests 78→81 from this
+  branch's own additions). Final README numbers are updated from the last
+  green runs.
+
+**Deviations from this spec (session-authorized, documented here):**
+
+1. **"No behaviour change" is superseded.** The execution directive for this
+   run explicitly ordered fixing demonstrated defects from the risk-based
+   audit, with tests. Fixed with regression tests: plan-setup busy-state
+   (audit #1), resource-library `initialHasMore` seeding (#2), room-settings
+   save-lock (#4), notifications load-more failure recovery (#5),
+   mark-read failure recovery on inbox and bell (#6), goals pending/trim
+   handling (#7), chat 401 → honest "Not sent." (#8), login error copy
+   without leaking internals (B5), `safeNextPath` open-redirect hardening +
+   OTP-type allow-list on `/auth/confirm` (B1+B4), and the three new rate
+   limits (B2).
+2. **A11y defect fixes** (beyond "document the inventory"): `--success`
+   token (AA-verified: 4.84:1 on white, 13.4:1 on dark) replacing the failing
+   `text-green-600`; `aria-invalid`/`aria-describedby` wired on every
+   room-create and room-settings field with tests; the bell button raised to
+   44 px to honour the PR-19 "44px icon buttons" claim.
+3. **Route fallbacks were added**, not just inventoried — the session
+   directive overrode the "documented list only" rule; the inventory is
+   committed as a checklist in `docs/milestones.md`.
+4. Script filenames are `.mjs` (plain Node ESM), not `.ts` as the file list
+   guessed; `jest.config.ts` was never needed (vitest config).
+5. CI job structure: coverage is folded into the existing quality job (the
+   spec allowed either), keeping total runtime flat.
+
+**First CI run (39169809531) — quality ✓, integration ✓, e2e 1 failed + 1
+flaky. Both root-caused and fixed on the branch:**
+
+1. **Axe `label-content-name-mismatch` (23 nodes) on the discovery scan.**
+   `RoomMembershipButton` named itself `aria-label="Join ${roomName}"` while
+   rendering the visible text "Join room" / "Leave room" — the visible label
+   is not inside the accessible name. The violation only appears when
+   joinable public rooms are on the page (CI's shared leftovers), so it was
+   locally reproduced by seeding one: red with the old component, green with
+   the fix. Fix: visible copy is now "Join" / "Leave" and the pending
+   `aria-label` mirrors "Joining…" / "Leaving…", so label-in-name holds in
+   every state; a unit test asserts visible ⊆ accessible name idle and
+   pending. Every existing locator queries the room-named `aria-label`, which
+   is unchanged; `docs/milestones.md` copy updated.
+2. **Flaky `notifications` mark-all — badge stuck at 1 after the reload.**
+   Stale `/api/notifications/unread-count` responses issued before the
+   optimistic clear (wake-up or list refresh) resolved after it and
+   resurrected the count. Fix: latest-wins sequence guards in
+   `NotificationBell` for the count and the list — an in-flight read issued
+   before a mark-read/mark-all can never apply after it — plus a reconciling
+   `refreshCount` on the success path of both writes, and `expectBadge`'s
+   badge phase now dispatches the focus wakeup it always claimed to rely on.
+   Two new unit regression tests fail without the guard (verified by
+   reverting only the component).
+   Local evidence after the fixes: unit **1614/143** (coverage 75.56% /
+   66.01% against floors 74/64), integration **430/24**, e2e **81/81**
+   (with the seeded joinable room in place, i.e. the CI condition), and
+   lint / tsc / check:env / check:counts / check:links / build all green.
+
+**Security-claim cross-check (Security requirements §4):** the audit agents
+re-read `docs/SECURITY.md` claims against the tests that prove them. Claims
+without backing proof were either fixed or removed; the open findings (B1–B5)
+were fixed on this branch with tests as listed above. No SECURITY claim is
+left asserted without a corresponding test or an explicit "not claimed"
+note.
 
 ---
 
@@ -236,24 +362,37 @@ tests/unit/scripts/*.test.ts                          (new)
 
 ### Acceptance criteria
 
-- [ ] `npm run test:coverage` works locally and reports a number for
+- [x] `npm run test:coverage` works locally and reports a number for
       `lib/**` + `app/api/**`; CI enforces floor = (measured baseline − 1pp)
       with the measured baseline stated in the PR.
-- [ ] CI fails on a coverage regression, a stale documented test count, and a
+- [x] CI fails on a coverage regression, a stale documented test count, and a
       broken docs link — each demonstrated in the PR description.
-- [ ] `docs/milestones.md` milestone I marked done with its commit/PR reference;
+- [x] `docs/milestones.md` milestone I marked done with its commit/PR reference;
       remaining milestones point at `docs/PR_ROADMAP.md` rather than restating
       work.
-- [ ] `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md` exist, match
+- [x] `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md` exist, match
       reality (commands verified by running them), and contain no duplicated
       spec text or secrets.
-- [ ] PR template exists and mirrors the shared DoD from `docs/prs/*`.
-- [ ] Route-fallback inventory (`loading.tsx`/`error.tsx` gaps) is written down
+- [x] PR template exists and mirrors the shared DoD from `docs/prs/*`.
+- [x] Route-fallback inventory (`loading.tsx`/`error.tsx` gaps) is written down
       as a list assigned to owners — not fixed here.
-- [ ] Existing test suppressions/counted lint warnings baselined with no new
+      *(Deviation: the gaps were also fixed on this branch, per the execution
+      directive — see "Deviations" §3; the inventory itself is committed in
+      `docs/milestones.md`.)*
+- [x] Existing test suppressions/counted lint warnings baselined with no new
       ones introduced.
 - [ ] Zero behaviour changes in runtime code (diff reviewed for that claim).
-- [ ] All three suites + build green locally and in CI.
+      *(Superseded by the execution directive — every behaviour change is
+      listed under "Deviations" §1–§3 with its regression test.)*
+- [x] All three suites + build green locally and in CI.
+      (Local: lint 0/0, `tsc` clean, `check:env` ok, unit 1614/143 with
+      coverage 75.56%/66.01% above the floors, integration 430/24,
+      e2e 81/20 specs — including the axe discovery scan with a seeded
+      joinable public room, build green, smoke 5/5, `check:counts` ok with
+      both run JSONs, `check:links` ok. CI: run 39214385915 on `facc1b4`
+      green — quality, integration, and e2e all success, 81/81 browser
+      tests, no flakes; run 39169809531's two e2e failures were
+      root-caused and fixed as recorded under "First CI run".)
 
 ### Definition of Done
 
