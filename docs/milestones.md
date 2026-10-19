@@ -148,7 +148,8 @@ Working log: what has landed, what each milestone still owes.
       `GET /api/rooms` and `toPublicRoom()` are unchanged, so discovery still leaks
       nothing new.
 - [x] UI — `RoomMembershipButton` posts and calls `router.refresh()`, so the rendered
-      card always matches the database; it shows "Join room" / "Leave room" with a
+      card always matches the database; it shows "Join" / "Leave" (the room name
+      stays in the button's accessible name) with a
       pending state, "Room is full." / "Room is closed." / "You own this room."
       instead of a dead control, redirects to login on `401`, surfaces the server's
       message on `409` and only claims a lost connection when `fetch` itself fails.

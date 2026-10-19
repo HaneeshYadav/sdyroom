@@ -62,8 +62,11 @@ async function openBellDropdown(page: Page) {
  *    that false green is what let a cancelled mark-read reach the inbox
  *    assertion unnoticed).
  * 2. The badge itself, which must then reflect that count (absent at zero,
- *    the number otherwise). The wakeup's own refresh delivers the update; the
- *    expect retry window absorbs the round trip.
+ *    the number otherwise). This check dispatches the wakeup too: the count
+ *    read that phase 1 approved can still be in flight when phase 1 ends, and
+ *    a badge converged only by reads issued earlier can still be one answer
+ *    stale — the retry window has to keep nudging the tab, not just re-read
+ *    the DOM.
  */
 async function expectBadge(page: Page, expected: number) {
   await expect
@@ -83,11 +86,18 @@ async function expectBadge(page: Page, expected: number) {
     )
     .toBe(expected);
 
-  if (expected === 0) {
-    await expect(badge(page)).toHaveCount(0);
-  } else {
-    await expect(badge(page)).toHaveText(String(expected));
-  }
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        const count = await badge(page).count();
+        if (expected === 0) return count;
+        if (count !== 1) return -1;
+        return Number((await badge(page).textContent()) ?? Number.NaN);
+      },
+      { timeout: 15_000, intervals: [250, 500, 1_000] },
+    )
+    .toBe(expected);
 }
 
 test("live invite, deep link, mark-all, and preference suppression", async ({

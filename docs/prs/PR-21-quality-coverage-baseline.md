@@ -94,6 +94,35 @@ rather than by silently rewriting the requirement.
 5. CI job structure: coverage is folded into the existing quality job (the
    spec allowed either), keeping total runtime flat.
 
+**First CI run (39169809531) — quality ✓, integration ✓, e2e 1 failed + 1
+flaky. Both root-caused and fixed on the branch:**
+
+1. **Axe `label-content-name-mismatch` (23 nodes) on the discovery scan.**
+   `RoomMembershipButton` named itself `aria-label="Join ${roomName}"` while
+   rendering the visible text "Join room" / "Leave room" — the visible label
+   is not inside the accessible name. The violation only appears when
+   joinable public rooms are on the page (CI's shared leftovers), so it was
+   locally reproduced by seeding one: red with the old component, green with
+   the fix. Fix: visible copy is now "Join" / "Leave" and the pending
+   `aria-label` mirrors "Joining…" / "Leaving…", so label-in-name holds in
+   every state; a unit test asserts visible ⊆ accessible name idle and
+   pending. Every existing locator queries the room-named `aria-label`, which
+   is unchanged; `docs/milestones.md` copy updated.
+2. **Flaky `notifications` mark-all — badge stuck at 1 after the reload.**
+   Stale `/api/notifications/unread-count` responses issued before the
+   optimistic clear (wake-up or list refresh) resolved after it and
+   resurrected the count. Fix: latest-wins sequence guards in
+   `NotificationBell` for the count and the list — an in-flight read issued
+   before a mark-read/mark-all can never apply after it — plus a reconciling
+   `refreshCount` on the success path of both writes, and `expectBadge`'s
+   badge phase now dispatches the focus wakeup it always claimed to rely on.
+   Two new unit regression tests fail without the guard (verified by
+   reverting only the component).
+   Local evidence after the fixes: unit **1614/143** (coverage 75.56% /
+   66.01% against floors 74/64), integration **430/24**, e2e **81/81**
+   (with the seeded joinable room in place, i.e. the CI condition), and
+   lint / tsc / check:env / check:counts / check:links / build all green.
+
 **Security-claim cross-check (Security requirements §4):** the audit agents
 re-read `docs/SECURITY.md` claims against the tests that prove them. Claims
 without backing proof were either fixed or removed; the open findings (B1–B5)

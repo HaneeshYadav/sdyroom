@@ -150,4 +150,38 @@ describe("RoomMembershipButton", () => {
     expect(screen.getByText("You own this room.")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
+
+  it("keeps the visible label inside the accessible name, idle and pending", () => {
+    fetchMock.mockReturnValue(new Promise(() => undefined));
+
+    const joinView = render(<RoomMembershipButton {...props} />);
+    const join = screen.getByRole("button", {
+      name: "Join Calculus Study Room",
+    });
+    const joinVisible = (join.textContent ?? "").trim();
+    expect(joinVisible).toBe("Join");
+    expect(join.getAttribute("aria-label")).toContain(joinVisible);
+
+    fireEvent.click(join);
+    const joining = screen.getByRole("button", { name: "Joining..." });
+    expect((joining.textContent ?? "").trim()).toBe("Joining...");
+    expect(joining.getAttribute("aria-label")).toBe("Joining...");
+    joinView.unmount();
+
+    const leaveView = render(
+      <RoomMembershipButton {...props} viewerMembership="member" />,
+    );
+    const leave = screen.getByRole("button", {
+      name: "Leave Calculus Study Room",
+    });
+    const leaveVisible = (leave.textContent ?? "").trim();
+    expect(leaveVisible).toBe("Leave");
+    expect(leave.getAttribute("aria-label")).toContain(leaveVisible);
+
+    fireEvent.click(leave);
+    const leaving = screen.getByRole("button", { name: "Leaving..." });
+    expect((leaving.textContent ?? "").trim()).toBe("Leaving...");
+    expect(leaving.getAttribute("aria-label")).toBe("Leaving...");
+    leaveView.unmount();
+  });
 });

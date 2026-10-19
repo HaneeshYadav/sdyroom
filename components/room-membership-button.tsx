@@ -86,10 +86,10 @@ export function RoomMembershipButton({
         size="sm"
         variant="outline"
         disabled={isPending}
-        aria-label={`Leave ${roomName}`}
+        aria-label={isPending ? "Leaving..." : `Leave ${roomName}`}
         onClick={() => void act("leave")}
       >
-        {isPending ? "Leaving..." : "Leave room"}
+        {isPending ? "Leaving..." : "Leave"}
       </Button>
     );
   } else if (isClosed) {
@@ -102,10 +102,10 @@ export function RoomMembershipButton({
         type="button"
         size="sm"
         disabled={isPending}
-        aria-label={`Join ${roomName}`}
+        aria-label={isPending ? "Joining..." : `Join ${roomName}`}
         onClick={() => void act("join")}
       >
-        {isPending ? "Joining..." : "Join room"}
+        {isPending ? "Joining..." : "Join"}
       </Button>
     );
   }
