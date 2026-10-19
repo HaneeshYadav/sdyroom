@@ -568,7 +568,7 @@ commands.
 | [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) | What every endpoint accepts and returns |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model, security coverage, known limitations |
 | [docs/local-supabase.md](docs/local-supabase.md) | Local database: schema, grants, policies, verification |
-| [docs/RELEASE.md](docs/RELEASE.md) | Launch checklist, environment matrix, retention and backup/restore drills |
+| [docs/RELEASE.md](docs/RELEASE.md) | Pre-deployment gates, launch checklist, environment matrix, rollback/recovery, evidence tiers, retention and backup/restore drills |
 | [docs/PR_ROADMAP.md](docs/PR_ROADMAP.md) · [docs/milestones.md](docs/milestones.md) | What shipped, what is next, in what order |
 | [docs/prs/](docs/prs/) | Per-PR specifications and reconciliation notes |
 | [tests/integration/README.md](tests/integration/README.md) · [tests/e2e/README.md](tests/e2e/README.md) | How the suites run and what they prove |

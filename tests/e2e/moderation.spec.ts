@@ -179,9 +179,15 @@ test.describe("moderation and member safety", () => {
         .getByRole("textbox", { name: "Message" })
         .fill("still shouting");
       await chatPanel(member).getByRole("button", { name: "Send" }).click();
-      await expect(
-        chatPanel(member).locator("li", { hasText: "still shouting" }),
-      ).toBeVisible();
+      const memberLine = chatPanel(member).locator("li", {
+        hasText: "still shouting",
+      });
+      await expect(memberLine).toBeVisible();
+
+      // Reload only once the POST has been confirmed — until then the row
+      // on screen is the optimistic one, which a reload would rightly lose.
+      await expect(memberLine).not.toContainText("Sending…");
+      await expect(memberLine).not.toContainText("Not sent.");
       await owner.reload();
       await expect(
         chatPanel(owner).locator("li", { hasText: "still shouting" }),
