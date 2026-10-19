@@ -385,10 +385,14 @@ tests/unit/scripts/*.test.ts                          (new)
       *(Superseded by the execution directive — every behaviour change is
       listed under "Deviations" §1–§3 with its regression test.)*
 - [x] All three suites + build green locally and in CI.
-      (Local: lint 0/0, `tsc` clean, `check:env` ok, unit 1611/143 with
+      (Local: lint 0/0, `tsc` clean, `check:env` ok, unit 1614/143 with
       coverage 75.56%/66.01% above the floors, integration 430/24,
-      e2e 81/20 specs, build green, smoke 5/5, `check:counts` ok with both
-      run JSONs, `check:links` ok. CI: pending the GitHub run on this PR.)
+      e2e 81/20 specs — including the axe discovery scan with a seeded
+      joinable public room, build green, smoke 5/5, `check:counts` ok with
+      both run JSONs, `check:links` ok. CI: run 39214385915 on `facc1b4`
+      green — quality, integration, and e2e all success, 81/81 browser
+      tests, no flakes; run 39169809531's two e2e failures were
+      root-caused and fixed as recorded under "First CI run".)
 
 ### Definition of Done
 
